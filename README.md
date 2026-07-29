@@ -23,6 +23,10 @@ Built from scratch, inspired by JustHireMe but improved with best-in-class open-
 
 ---
 
+# What is JobHunter
+
+JobHunter is a local-first AI job intelligence workbench. It scrapes job postings, ingests and parses your resume/profile, ranks roles against your profile with transparent, explainable scoring, and generates tailored application materials such as resumes and cover letters. It combines a graph-based profile store, vector search for semantic matching, and an evaluation layer to check the quality of generated content, all running locally with pluggable LLM providers.
+
 ## Architecture
 
 ```mermaid
