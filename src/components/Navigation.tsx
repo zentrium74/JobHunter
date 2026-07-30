@@ -1,12 +1,21 @@
-import { Target, Search, Cpu, FileText, Columns, User, Sparkles } from 'lucide-react';
+import { Target, Search, Cpu, FileText, Columns, User, Sparkles, Key } from 'lucide-react';
+import { LLMSettings } from '../types';
 
 interface NavigationProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   jobCount: number;
+  onOpenSettings: () => void;
+  settings: LLMSettings;
 }
 
-export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab, jobCount }) => {
+export const Navigation: React.FC<NavigationProps> = ({
+  activeTab,
+  setActiveTab,
+  jobCount,
+  onOpenSettings,
+  settings
+}) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Target },
     { id: 'jobs', label: 'Jobs & Scraper', icon: Search, badge: jobCount },
@@ -38,32 +47,44 @@ export const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab,
             </div>
           </div>
 
-          {/* Navigation Links */}
-          <nav className="flex items-center space-x-1 sm:space-x-2">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative ${
-                    isActive
-                      ? 'bg-slate-800 text-emerald-400 border border-slate-700 shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`} />
-                  <span className="hidden md:inline">{item.label}</span>
-                  {item.badge !== undefined && item.badge > 0 && (
-                    <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-emerald-500/20 text-emerald-400 rounded-full">
-                      {item.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
+          {/* Right Navigation & LLM Settings Button */}
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            <nav className="flex items-center space-x-1 sm:space-x-2">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative ${
+                      isActive
+                        ? 'bg-slate-800 text-emerald-400 border border-slate-700 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 ${isActive ? 'text-emerald-400' : 'text-slate-400'}`} />
+                    <span className="hidden md:inline">{item.label}</span>
+                    {item.badge !== undefined && item.badge > 0 && (
+                      <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-emerald-500/20 text-emerald-400 rounded-full">
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* BYOK Settings Trigger */}
+            <button
+              onClick={onOpenSettings}
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-500/10 to-teal-500/10 hover:from-emerald-500/20 hover:to-teal-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all shadow-sm"
+              title="Bring Your Own API Key & Model Settings"
+            >
+              <Key className="w-4 h-4" />
+              <span className="hidden lg:inline capitalize">{settings.provider}: {settings.model.split(':')[0]}</span>
+            </button>
+          </div>
         </div>
       </div>
     </header>

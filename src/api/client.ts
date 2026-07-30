@@ -1,4 +1,4 @@
-import { JobListing, CandidateProfile, RankResult, DocumentResult, SystemStats } from '../types';
+import { JobListing, CandidateProfile, RankResult, DocumentResult, SystemStats, LLMSettings } from '../types';
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -216,4 +216,27 @@ export async function fetchStats(jobs: JobListing[]): Promise<SystemStats> {
     avg_match_score: avg_score,
     interview_rate_pct: Math.round((interviewing / Math.max(applied, 1)) * 100)
   };
+}
+
+export async function fetchSettings(): Promise<LLMSettings> {
+  try {
+    const res = await fetch(`${API_BASE}/settings`);
+    if (res.ok) return await res.json();
+  } catch {}
+  return { provider: 'ollama', model: 'qwen2.5-coder:7b', api_key: '' };
+}
+
+export async function updateSettings(settings: LLMSettings): Promise<LLMSettings> {
+  try {
+    const res = await fetch(`${API_BASE}/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.settings;
+    }
+  } catch {}
+  return settings;
 }

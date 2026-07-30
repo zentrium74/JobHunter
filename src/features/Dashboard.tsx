@@ -1,14 +1,23 @@
-import { SystemStats, JobListing } from '../types';
-import { Search, Send, Video, Award, TrendingUp, Sparkles, ArrowRight, ShieldCheck } from 'lucide-react';
+import { SystemStats, JobListing, LLMSettings } from '../types';
+import { Search, Send, Video, Award, TrendingUp, Sparkles, ArrowRight, ShieldCheck, Key, Cpu } from 'lucide-react';
 
 interface DashboardProps {
   stats: SystemStats;
   jobs: JobListing[];
   setActiveTab: (tab: string) => void;
   setSelectedJobId: (id: string) => void;
+  onOpenSettings: () => void;
+  settings: LLMSettings;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ stats, jobs, setActiveTab, setSelectedJobId }) => {
+export const Dashboard: React.FC<DashboardProps> = ({
+  stats,
+  jobs,
+  setActiveTab,
+  setSelectedJobId,
+  onOpenSettings,
+  settings
+}) => {
   const topMatches = [...jobs].sort((a, b) => (b.match_score || 0) - (a.match_score || 0)).slice(0, 3);
 
   return (
@@ -38,13 +47,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, jobs, setActiveTab,
               <Search className="w-4 h-4" /> Scrape & Explore Jobs
             </button>
             <button
-              onClick={() => setActiveTab('generator')}
+              onClick={onOpenSettings}
               className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-sm border border-slate-700 transition-all flex items-center gap-2"
             >
-              <ArrowRight className="w-4 h-4" /> Tailor Application Docs
+              <Key className="w-4 h-4 text-emerald-400" /> Bring Your API Key
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Bring Your Own Key Active Status Card */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center space-x-4">
+          <div className="p-3 rounded-2xl bg-gradient-to-tr from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 text-emerald-400">
+            <Cpu className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <h3 className="text-base font-bold text-white">Active LLM Engine:</h3>
+              <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold text-xs capitalize">
+                {settings.provider} ({settings.model})
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {settings.provider === 'ollama' 
+                ? 'Running keyless local AI inference via Ollama' 
+                : `Connected to ${settings.provider.toUpperCase()} with custom API Key`}
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={onOpenSettings}
+          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-slate-200 font-bold text-xs border border-slate-700 transition-all flex items-center gap-1.5 self-start md:self-auto"
+        >
+          <Key className="w-4 h-4" /> Change Provider or API Key
+        </button>
       </div>
 
       {/* Metrics Grid */}
@@ -147,7 +185,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, jobs, setActiveTab,
             <strong>Local-First Guarantee:</strong> Your resume, graph memory (mem0), and application logs remain safely on your computer.
           </span>
         </div>
-        <span className="hidden sm:inline font-mono text-[11px] text-emerald-500">Status: Active Engine</span>
+        <span className="hidden sm:inline font-mono text-[11px] text-emerald-500">Status: Active Engine ({settings.provider})</span>
       </div>
     </div>
   );

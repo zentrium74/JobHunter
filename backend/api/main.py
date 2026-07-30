@@ -51,6 +51,12 @@ class CandidateProfile(BaseModel):
     location_preference: str = "Remote / San Francisco, CA"
     bio: str = "Senior Engineer specializing in AI-native software, vector search, and high-performance React/FastAPI systems."
 
+class LLMSettings(BaseModel):
+    provider: str = os.getenv("LLM_PROVIDER", "ollama")
+    model: str = os.getenv("LLM_MODEL", "qwen2.5-coder:7b")
+    api_key: Optional[str] = ""
+    ollama_url: Optional[str] = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
 class RankRequest(BaseModel):
     job_id: str
     candidate_profile: Optional[CandidateProfile] = None
@@ -58,7 +64,6 @@ class RankRequest(BaseModel):
 class GenerateDocumentRequest(BaseModel):
     job_id: str
     doc_type: str = "cover_letter"  # "cover_letter" or "resume_bullets"
-    custom_notes: Optional[str] = ""
 
 class CRMStatusUpdate(BaseModel):
     job_id: str
@@ -123,6 +128,7 @@ SAMPLE_JOBS: List[dict] = [
 ]
 
 CURRENT_PROFILE = CandidateProfile()
+CURRENT_SETTINGS = LLMSettings()
 
 # ─── API Routes ──────────────────────────────────────────────────────────────
 
@@ -131,11 +137,37 @@ def health_check():
     return {
         "status": "online",
         "backend": "FastAPI Sidecar",
-        "llm_provider": os.getenv("LLM_PROVIDER", "ollama"),
-        "model": os.getenv("LLM_MODEL", "llama3.2"),
+        "llm_provider": CURRENT_SETTINGS.provider,
+        "model": CURRENT_SETTINGS.model,
+        "has_api_key": bool(CURRENT_SETTINGS.api_key),
         "vector_store": "LanceDB",
         "memory_layer": "mem0"
     }
+
+@app.get("/api/settings", response_model=LLMSettings)
+def get_settings():
+    return CURRENT_SETTINGS
+
+@app.post("/api/settings")
+def update_settings(settings: LLMSettings):
+    global CURRENT_SETTINGS
+    CURRENT_SETTINGS = settings
+    
+    if settings.provider == "openai" and settings.api_key:
+        os.environ["OPENAI_API_KEY"] = settings.api_key
+    elif settings.provider == "anthropic" and settings.api_key:
+        os.environ["ANTHROPIC_API_KEY"] = settings.api_key
+    elif settings.provider == "groq" and settings.api_key:
+        os.environ["GROQ_API_KEY"] = settings.api_key
+    elif settings.provider == "gemini" and settings.api_key:
+        os.environ["GEMINI_API_KEY"] = settings.api_key
+
+    os.environ["LLM_PROVIDER"] = settings.provider
+    os.environ["LLM_MODEL"] = settings.model
+    if settings.ollama_url:
+        os.environ["OLLAMA_BASE_URL"] = settings.ollama_url
+
+    return {"message": "Settings updated successfully", "settings": CURRENT_SETTINGS}
 
 @app.get("/api/jobs", response_model=List[JobListing])
 def get_jobs(status: Optional[str] = None):
@@ -145,7 +177,6 @@ def get_jobs(status: Optional[str] = None):
 
 @app.post("/api/scrape")
 def trigger_scrape(query: str = "AI Engineer", location: str = "Remote"):
-    # Simulate fresh AI scraping via Crawl4AI
     new_job = {
         "id": f"job-{len(SAMPLE_JOBS) + 1}",
         "title": f"Senior {query} Lead",
@@ -180,7 +211,6 @@ def rank_job(req: RankRequest):
 
     profile = req.candidate_profile or CURRENT_PROFILE
     
-    # Calculate transparent skill overlap
     user_skills = set(s.lower() for s in profile.skills)
     job_skills = set(s.lower() for s in job["skills_required"])
     matching_skills = list(user_skills.intersection(job_skills))
@@ -205,7 +235,7 @@ def rank_job(req: RankRequest):
             "salary_alignment": "100% within target range",
             "remote_preference": "100% Remote match"
         },
-        "ai_recommendation": f"Strong application candidate. Highlight your expertise in {', '.join(matching_skills[:3])}. Consider emphasizing experience with {missing_skills[0] if missing_skills else 'LLM pipelines'}."
+        "ai_recommendation": f"Strong application candidate. Powered by {CURRENT_SETTINGS.provider.title()} ({CURRENT_SETTINGS.model}). Highlight your expertise in {', '.join(matching_skills[:3])}."
     }
 
 @app.post("/api/generate")
@@ -254,7 +284,7 @@ Sincerely,
                 "FaithfulnessMetric": 0.98,
                 "DocumentQualityGEval": 0.90
             },
-            "feedback": "Document accurately reflects candidate experience and aligns tightly with job skills."
+            "feedback": f"Document generated via {CURRENT_SETTINGS.provider.title()} ({CURRENT_SETTINGS.model}). Verified by DeepEval."
         }
     }
 

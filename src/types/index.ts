@@ -65,3 +65,10 @@ export interface SystemStats {
   avg_match_score: number;
   interview_rate_pct: number;
 }
+
+export interface LLMSettings {
+  provider: 'ollama' | 'openai' | 'anthropic' | 'groq' | 'gemini';
+  model: string;
+  api_key?: string;
+  ollama_url?: string;
+}
