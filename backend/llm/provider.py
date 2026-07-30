@@ -76,7 +76,7 @@ def call(
     """
     max_tokens = _MAX_TOKENS.get(task, _MAX_TOKENS["gen"])
     kwargs = {**_base_kwargs(), "messages": messages, "max_tokens": max_tokens, **overrides}
-    response = completion(**kwargs)
+    response = litellm.completion(**kwargs)
     return response.choices[0].message.content or ""
 
 

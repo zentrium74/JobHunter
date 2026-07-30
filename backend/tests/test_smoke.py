@@ -110,6 +110,7 @@ class TestLiteLLMProviderSmoke:
                 result = call(
                     messages=[{"role": "user", "content": "write cover letter"}],
                     task="gen",
+                    caching=False,
                 )
 
         assert "Hiring Manager" in result
