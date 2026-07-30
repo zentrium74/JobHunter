@@ -50,6 +50,30 @@ export function App() {
         setIsOnboardingOpen(true);
       }
     });
+
+    // WebSocket connection for real-time updates
+    const ws = new WebSocket('ws://localhost:8000/ws');
+    
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'jobs_updated') {
+          fetchJobs().then((jobsData) => {
+            setJobs(jobsData);
+            fetchStats(jobsData).then(setStats);
+          });
+        } else if (data.type === 'notification') {
+          // Future enhancement: show a toast notification here
+          console.log("WS Notification:", data.message);
+        }
+      } catch (e) {
+        console.error("WebSocket message parse error", e);
+      }
+    };
+
+    return () => {
+      ws.close();
+    };
   }, []);
 
   const handleScrape = async (query: string, location: string) => {

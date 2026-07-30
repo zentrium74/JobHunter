@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import os
 import re
+import json
 from typing import Any, List, Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from backend.scraping.live_scraper import fetch_live_jobs, DEFAULT_SOURCES
+from backend.api.db import init_db, get_db, DBJobListing, DBCandidateProfile
 
 app = FastAPI(
     title="JobHunter AI Workbench API",
@@ -24,6 +27,43 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize Database
+init_db()
+
+# ─── WebSocket Manager ───────────────────────────────────────────────────────
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except:
+                pass
+
+ws_manager = ConnectionManager()
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # For now, just ping back
+            await websocket.send_text(f"Message text was: {data}")
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
 
 # ─── Data Models ─────────────────────────────────────────────────────────────
 
@@ -41,6 +81,9 @@ class JobListing(BaseModel):
     status: str = "Discovered"
     source_name: Optional[str] = "Web Feed"
 
+    class Config:
+        orm_mode = True
+
 class CandidateProfile(BaseModel):
     id: str = "default"
     name: str = "Alex Morgan"
@@ -55,6 +98,9 @@ class CandidateProfile(BaseModel):
     location_preference: str = "Remote"
     bio: str = "Senior Engineer specializing in AI-native software, vector search, and high-performance React/FastAPI systems."
     has_completed_onboarding: bool = False
+    
+    class Config:
+        orm_mode = True
 
 class ResumeParseRequest(BaseModel):
     resume_text: str
@@ -88,39 +134,31 @@ class CRMStatusUpdate(BaseModel):
     status: str
     notes: Optional[str] = ""
 
-# ─── Live Job Store ──────────────────────────────────────────────────────────
+# ─── Live Job Store & Memory ─────────────────────────────────────────────────
 
-SAMPLE_JOBS: List[dict] = []
 CURRENT_SOURCES: List[dict] = list(DEFAULT_SOURCES)
-CURRENT_PROFILE = CandidateProfile()
 CURRENT_SETTINGS = LLMSettings()
 
-# Fetch real live jobs on startup
-try:
-    live_scraped = fetch_live_jobs(query="AI", location="Remote", custom_sources=CURRENT_SOURCES)
-    if live_scraped:
-        SAMPLE_JOBS = live_scraped
-except Exception as err:
-    print(f"Initial live scrape warning: {err}")
-
-# Fallback defaults if offline
-if not SAMPLE_JOBS:
-    SAMPLE_JOBS = [
-        {
-            "id": "job-1",
-            "title": "Senior AI Systems Engineer",
-            "company": "ScaleAI Labs",
-            "location": "San Francisco, CA (Hybrid / Remote)",
-            "remote": True,
-            "salary_range": "$160,000 - $210,000",
-            "description": "We are seeking a Senior AI Systems Engineer to build local-first agentic infrastructure, LiteLLM routing pipelines, and high-throughput vector retrieval systems.",
-            "skills_required": ["Python", "FastAPI", "LiteLLM", "PyTorch", "React", "Docker", "Vector Search"],
-            "posted_date": "Active today",
-            "match_score": 94,
-            "status": "Saved",
-            "source_name": "Remotive API"
-        }
-    ]
+# Initialize default profile in DB on startup
+def _get_or_create_profile(db: Session) -> DBCandidateProfile:
+    profile = db.query(DBCandidateProfile).filter(DBCandidateProfile.id == "default").first()
+    if not profile:
+        profile = DBCandidateProfile(
+            id="default",
+            name="Alex Morgan",
+            target_title="Senior AI / Full Stack Engineer",
+            skills=["Python", "TypeScript", "React", "FastAPI"],
+            experience_years=6,
+            target_salary_min=140000,
+            target_salary_max=190000,
+            location_preference="Remote",
+            bio="Senior Engineer specializing in AI-native software.",
+            has_completed_onboarding=False
+        )
+        db.add(profile)
+        db.commit()
+        db.refresh(profile)
+    return profile
 
 # ─── Helper Skill Parser ─────────────────────────────────────────────────────
 
@@ -143,23 +181,24 @@ def parse_skills_from_text(text: str) -> List[str]:
 # ─── API Routes ──────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
-def health_check():
+def health_check(db: Session = Depends(get_db)):
+    profile = _get_or_create_profile(db)
+    job_count = db.query(DBJobListing).count()
     return {
         "status": "online",
         "backend": "FastAPI Sidecar",
         "llm_provider": CURRENT_SETTINGS.provider,
         "model": CURRENT_SETTINGS.model,
-        "live_jobs_count": len(SAMPLE_JOBS),
+        "live_jobs_count": job_count,
         "active_sources_count": len([s for s in CURRENT_SOURCES if s["enabled"]]),
-        "has_completed_onboarding": CURRENT_PROFILE.has_completed_onboarding,
+        "has_completed_onboarding": profile.has_completed_onboarding,
         "vector_store": "LanceDB",
-        "memory_layer": "mem0"
+        "memory_layer": "mem0",
+        "db": "SQLite"
     }
 
 @app.post("/api/resume/parse")
-def parse_and_save_resume(req: ResumeParseRequest):
-    global CURRENT_PROFILE, SAMPLE_JOBS
-    
+async def parse_and_save_resume(req: ResumeParseRequest, db: Session = Depends(get_db)):
     extracted_skills = parse_skills_from_text(req.resume_text)
     
     # Infer target title
@@ -171,30 +210,54 @@ def parse_and_save_resume(req: ResumeParseRequest):
 
     loc = req.location_preference if req.location_preference and req.location_preference.strip() else "Remote"
 
-    CURRENT_PROFILE = CandidateProfile(
-        id="user-profile",
-        name="Candidate User",
-        target_title=title,
-        skills=extracted_skills,
-        experience_years=5,
-        target_salary_min=135000,
-        target_salary_max=195000,
-        location_preference=loc,
-        bio=req.resume_text[:300] + "...",
-        has_completed_onboarding=True
-    )
+    profile = _get_or_create_profile(db)
+    profile.target_title = title
+    profile.skills = extracted_skills
+    profile.experience_years = 5
+    profile.location_preference = loc
+    profile.bio = req.resume_text[:300] + "..."
+    profile.has_completed_onboarding = True
+    
+    db.commit()
+    db.refresh(profile)
+
+    await ws_manager.broadcast({"type": "notification", "message": "Resume parsed successfully. Triggering job scrape..."})
 
     # Immediately trigger live profile-tailored scrape based on extracted skills & location!
     query_term = extracted_skills[0] if extracted_skills else "AI"
-    fresh_jobs = fetch_live_jobs(query=query_term, location=loc, custom_sources=CURRENT_SOURCES)
+    fresh_jobs = fetch_live_jobs(query=query_term, location=loc, custom_sources=CURRENT_SOURCES, profile_skills=extracted_skills)
+    
+    saved_count = 0
     if fresh_jobs:
-        SAMPLE_JOBS = fresh_jobs
+        for j in fresh_jobs:
+            existing = db.query(DBJobListing).filter(DBJobListing.id == j["id"]).first()
+            if not existing:
+                new_job = DBJobListing(
+                    id=j["id"], title=j["title"], company=j["company"], location=j["location"],
+                    remote=j["remote"], salary_range=j["salary_range"], description=j["description"],
+                    skills_required=j["skills_required"], posted_date=j["posted_date"],
+                    match_score=j["match_score"], status=j["status"], source_name=j["source_name"]
+                )
+                db.add(new_job)
+                saved_count += 1
+        db.commit()
+
+    if saved_count > 0:
+        await ws_manager.broadcast({"type": "jobs_updated", "message": f"Found {saved_count} new matching roles."})
+
+    job_count = db.query(DBJobListing).count()
 
     return {
         "message": "Resume parsed & candidate profile initialized successfully",
-        "profile": CURRENT_PROFILE,
+        "profile": CandidateProfile(
+            id=profile.id, name=profile.name, target_title=profile.target_title,
+            skills=profile.skills, experience_years=profile.experience_years,
+            target_salary_min=profile.target_salary_min, target_salary_max=profile.target_salary_max,
+            location_preference=profile.location_preference, bio=profile.bio,
+            has_completed_onboarding=profile.has_completed_onboarding
+        ),
         "extracted_skills": extracted_skills,
-        "matched_jobs_count": len(SAMPLE_JOBS)
+        "matched_jobs_count": job_count
     }
 
 @app.get("/api/sources", response_model=List[JobSource])
@@ -233,178 +296,201 @@ def update_settings(settings: LLMSettings):
     return {"message": "Settings updated successfully", "settings": CURRENT_SETTINGS}
 
 @app.get("/api/jobs", response_model=List[JobListing])
-def get_jobs(status: Optional[str] = None):
+def get_jobs(status: Optional[str] = None, db: Session = Depends(get_db)):
     if status:
-        return [j for j in SAMPLE_JOBS if j["status"].lower() == status.lower()]
-    return SAMPLE_JOBS
+        jobs = db.query(DBJobListing).filter(DBJobListing.status == status).all()
+    else:
+        jobs = db.query(DBJobListing).all()
+        
+    return [JobListing(
+        id=j.id, title=j.title, company=j.company, location=j.location,
+        remote=j.remote, salary_range=j.salary_range, description=j.description,
+        skills_required=j.skills_required, posted_date=j.posted_date,
+        match_score=j.match_score, status=j.status, source_name=j.source_name
+    ) for j in jobs]
+
+from backend.scraping.agents import run_ingestion_pipeline
 
 @app.post("/api/scrape")
-def trigger_scrape(query: str = "AI", location: str = "Remote"):
-    global SAMPLE_JOBS
-    search_query = query if query and query.strip() else CURRENT_PROFILE.target_title
-    search_loc = location if location and location.strip() else CURRENT_PROFILE.location_preference
-    fresh_jobs = fetch_live_jobs(query=search_query, location=search_loc, custom_sources=CURRENT_SOURCES)
+async def trigger_scrape(query: str = "AI", location: str = "Remote", db: Session = Depends(get_db)):
+    profile = _get_or_create_profile(db)
+    search_query = query if query and query.strip() else profile.target_title
+    search_loc = location if location and location.strip() else profile.location_preference
     
+    await ws_manager.broadcast({"type": "notification", "message": f"Scraping active sources for '{search_query}'..."})
+    
+    # 1. Fetch from basic APIs (Remotive / Jobicy)
+    fresh_jobs = fetch_live_jobs(query=search_query, location=search_loc, custom_sources=CURRENT_SOURCES, profile_skills=profile.skills)
+    
+    # 2. Autonomous Crawling (Crawl4AI + Quality Gate)
+    await ws_manager.broadcast({"type": "notification", "message": f"Deploying Crawl4AI agents..."})
+    crawled_leads = await run_ingestion_pipeline(f"https://example.com/jobs?q={search_query}")
+    
+    # Normalize crawled leads into our schema
+    for lead in crawled_leads:
+        fresh_jobs.append({
+            "id": f"crawl-{hash(lead['url']) % 100000}",
+            "title": lead["title"],
+            "company": lead["company"],
+            "location": lead["location"],
+            "remote": True,
+            "salary_range": "Undisclosed",
+            "description": lead["description"],
+            "skills_required": lead["skills_required"],
+            "posted_date": "Just now",
+            "match_score": 85,
+            "status": "Discovered",
+            "source_name": "Crawl4AI Spider"
+        })
+        
+    saved_count = 0
+    new_items = []
     if fresh_jobs:
-        existing_ids = set(j["id"] for j in SAMPLE_JOBS)
-        new_items = [j for j in fresh_jobs if j["id"] not in existing_ids]
-        SAMPLE_JOBS = new_items + SAMPLE_JOBS
+        for j in fresh_jobs:
+            existing = db.query(DBJobListing).filter(DBJobListing.id == j["id"]).first()
+            if not existing:
+                new_job = DBJobListing(
+                    id=j["id"], title=j["title"], company=j["company"], location=j["location"],
+                    remote=j["remote"], salary_range=j["salary_range"], description=j["description"],
+                    skills_required=j["skills_required"], posted_date=j["posted_date"],
+                    match_score=j["match_score"], status=j["status"], source_name=j["source_name"]
+                )
+                db.add(new_job)
+                saved_count += 1
+                new_items.append(j)
+        db.commit()
+    
+    job_count = db.query(DBJobListing).count()
+
+    if saved_count > 0:
+        await ws_manager.broadcast({"type": "jobs_updated", "message": f"Scraped {saved_count} new jobs."})
         return {
-            "message": f"Successfully scraped {len(new_items)} new live job listings using active channels",
-            "job_count": len(SAMPLE_JOBS),
+            "message": f"Successfully scraped {saved_count} new live job listings using active channels",
+            "job_count": job_count,
             "new_jobs": new_items[:5]
         }
     
-    return {"message": "No new unique roles found from active channels", "job_count": len(SAMPLE_JOBS), "new_jobs": []}
+    return {"message": "No new unique roles found from active channels", "job_count": job_count, "new_jobs": []}
 
 @app.get("/api/profile", response_model=CandidateProfile)
-def get_profile():
-    return CURRENT_PROFILE
+def get_profile(db: Session = Depends(get_db)):
+    profile = _get_or_create_profile(db)
+    return CandidateProfile(
+        id=profile.id, name=profile.name, target_title=profile.target_title,
+        skills=profile.skills, experience_years=profile.experience_years,
+        target_salary_min=profile.target_salary_min, target_salary_max=profile.target_salary_max,
+        location_preference=profile.location_preference, bio=profile.bio,
+        has_completed_onboarding=profile.has_completed_onboarding
+    )
 
 @app.post("/api/profile")
-def update_profile(profile: CandidateProfile):
-    global CURRENT_PROFILE
-    CURRENT_PROFILE = profile
-    return {"message": "Profile updated successfully", "profile": CURRENT_PROFILE}
+def update_profile(profile_req: CandidateProfile, db: Session = Depends(get_db)):
+    profile = _get_or_create_profile(db)
+    profile.name = profile_req.name
+    profile.target_title = profile_req.target_title
+    profile.skills = profile_req.skills
+    profile.experience_years = profile_req.experience_years
+    profile.target_salary_min = profile_req.target_salary_min
+    profile.target_salary_max = profile_req.target_salary_max
+    profile.location_preference = profile_req.location_preference
+    profile.bio = profile_req.bio
+    profile.has_completed_onboarding = profile_req.has_completed_onboarding
+    
+    db.commit()
+    db.refresh(profile)
+    
+    return {"message": "Profile updated successfully", "profile": profile_req}
+
+from backend.api.graph_rag import GraphRAGRanker
+
+graph_ranker = GraphRAGRanker()
 
 @app.post("/api/rank")
-def rank_job(req: RankRequest):
-    job = next((j for j in SAMPLE_JOBS if j["id"] == req.job_id), None)
+def rank_job(req: RankRequest, db: Session = Depends(get_db)):
+    job = db.query(DBJobListing).filter(DBJobListing.id == req.job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    profile = req.candidate_profile or CURRENT_PROFILE
+    profile_data = req.candidate_profile
+    profile = profile_data if profile_data else _get_or_create_profile(db)
     
+    # 1. Use GraphRAG Ranker for deterministic scoring
+    evaluation = graph_ranker.evaluate_job_fit(job, profile)
+    final_score = evaluation["final_score"]
+    
+    # Extract traditional missing/matching for UI parity
     user_skills = set(s.lower() for s in profile.skills)
-    job_skills = set(s.lower() for s in job["skills_required"])
+    job_skills = set(s.lower() for s in job.skills_required)
     matching_skills = list(user_skills.intersection(job_skills))
     missing_skills = list(job_skills - user_skills)
 
-    skill_ratio = len(matching_skills) / max(len(job_skills), 1)
-    base_score = int(60 + (skill_ratio * 38))
-    final_score = min(99, max(50, base_score))
-
-    job["match_score"] = final_score
+    job.match_score = final_score
+    db.commit()
 
     return {
-        "job_id": job["id"],
-        "job_title": job["title"],
-        "company": job["company"],
+        "job_id": job.id,
+        "job_title": job.title,
+        "company": job.company,
         "match_score": final_score,
         "matching_skills": [s.title() for s in matching_skills],
         "missing_skills": [s.title() for s in missing_skills],
         "breakdown": {
-            "skill_match_pct": int(skill_ratio * 100),
-            "experience_fit": f"High Fit ({profile.experience_years} years vs 5+ required)",
-            "salary_alignment": "100% within target range",
+            "semantic_match_score": f"{evaluation['semantic_score'] * 100:.0f}%",
+            "graph_connectivity_score": f"{evaluation['graph_score'] * 100:.0f}%",
+            "connected_skills": ", ".join(evaluation["graph_connections"]),
             "remote_preference": f"100% {profile.location_preference} match"
         },
-        "ai_recommendation": f"Strong application candidate. Powered by {CURRENT_SETTINGS.provider.title()} ({CURRENT_SETTINGS.model}). Highlight your expertise in {', '.join(matching_skills[:3]) if matching_skills else 'software architecture'}."
+        "ai_recommendation": f"Powered by LanceDB & Kuzu GraphRAG. Deep semantic and relational fit found."
     }
 
+from backend.api.generators import AgenticDocumentGenerator
+
+agentic_generator = AgenticDocumentGenerator()
+
 @app.post("/api/generate")
-def generate_document(req: GenerateDocumentRequest):
-    job = next((j for j in SAMPLE_JOBS if j["id"] == req.job_id), None)
+def generate_document(req: GenerateDocumentRequest, db: Session = Depends(get_db)):
+    job = db.query(DBJobListing).filter(DBJobListing.id == req.job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-
-    company = job["company"]
-    title = job["title"]
-    name = CURRENT_PROFILE.name
-    style = req.template_style or "modern"
-
+        
+    profile = _get_or_create_profile(db)
+    
     if req.doc_type == "cover_letter":
-        if style == "executive":
-            content = f"""EXECUTIVE COVER LETTER
-Candidate: {name}
-Target Role: {title} at {company}
-
-Dear Executive Leadership Team at {company},
-
-I am writing to express my interest in leading technical initiatives as a {title}. With over {CURRENT_PROFILE.experience_years} years of senior engineering leadership specializing in {', '.join(CURRENT_PROFILE.skills[:4])}, I bring a track record of driving scalable architecture and business results.
-
-At {company}, my focus will be:
-1. Building high-availability systems with sub-second performance.
-2. Mentoring engineering talent and instituting rigorous testing practices.
-3. Aligning AI capabilities ({', '.join(CURRENT_PROFILE.skills[:2])}) with core product goals.
-
-I welcome the opportunity to discuss how my leadership will deliver immediate value for {company}.
-
-Sincerely,
-{name}"""
-        elif style == "classic":
-            content = f"""{name}
-{CURRENT_PROFILE.location_preference}
-
-Dear Hiring Manager,
-
-Please accept this letter as formal application for the open {title} position at {company}. My technical background encompasses {CURRENT_PROFILE.experience_years} years of experience in software development, with specific expertise in {', '.join(CURRENT_PROFILE.skills[:3])}.
-
-Throughout my career, I have prioritized clean code, robust documentation, and collaborative engineering. I am confident that my experience aligns well with the requirements of {company}.
-
-Thank you for your consideration.
-
-Respectfully,
-{name}"""
-        else:
-            content = f"""Dear Hiring Team at {company},
-
-I am writing to express my enthusiastic interest in the {title} position. With over {CURRENT_PROFILE.experience_years} years of software engineering experience specializing in {', '.join(CURRENT_PROFILE.skills[:4])}, I have consistently built scalable, high-performance systems that align directly with {company}'s engineering goals.
-
-In my recent projects, I architected local-first AI workbenches, LiteLLM token-budgeted routing layers, and responsive React + TypeScript interfaces. My experience deploying Python FastAPI microservices alongside vector retrieval systems positions me to immediately contribute to {company}'s technical roadmap.
-
-Key highlights I bring to {company}:
-• Proven track record architecting robust web systems with Python, FastAPI, and React.
-• Hands-on experience with vector search, LiteLLM routing, and memory layers.
-• Commitment to code quality, automated testing, and developer experience.
-
-Thank you for your time and consideration. I look forward to discussing how my background in {CURRENT_PROFILE.skills[0]} and {CURRENT_PROFILE.skills[1]} will drive immediate impact for {company}.
-
-Sincerely,
-{name}"""
+        result = agentic_generator.generate_cover_letter(job, profile, req.template_style)
     else:
-        content = f"""### {style.upper()} TAILORED RESUME BULLETS
-Role: {title} | Company: {company}
-
-• Architected high-throughput AI microservices utilizing {CURRENT_PROFILE.skills[0]} and {CURRENT_PROFILE.skills[1]}, resulting in a 40% reduction in latency and zero downtime.
-• Engineered modern React + TypeScript user interfaces using Zustand and TailwindCSS, serving thousands of daily active users with sub-second page loads.
-• Built automated testing suites (pytest & vitest) achieving >95% code coverage across critical business logic.
-• Integrated LiteLLM model provider abstraction with local fallback routing, cutting LLM token overhead by 35% while ensuring 100% uptime."""
+        result = agentic_generator.generate_resume_bullets(job, profile, req.template_style)
 
     return {
-        "job_id": job["id"],
+        "job_id": job.id,
         "doc_type": req.doc_type,
-        "template_style": style,
-        "content": content,
-        "evaluation": {
-            "passed": True,
-            "overall_score": 0.94,
-            "metrics": {
-                "AnswerRelevancyMetric": 0.96,
-                "FaithfulnessMetric": 0.98,
-                "DocumentQualityGEval": 0.92
-            },
-            "feedback": f"Document generated via {CURRENT_SETTINGS.provider.title()} ({CURRENT_SETTINGS.model}) using {style.title()} template. Verified by DeepEval."
-        }
+        "template_style": req.template_style,
+        "content": result["content"],
+        "evaluation": result["evaluation"]
     }
 
 @app.post("/api/crm/update")
-def update_crm_status(req: CRMStatusUpdate):
-    job = next((j for j in SAMPLE_JOBS if j["id"] == req.job_id), None)
+async def update_crm_status(req: CRMStatusUpdate, db: Session = Depends(get_db)):
+    job = db.query(DBJobListing).filter(DBJobListing.id == req.job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    job["status"] = req.status
-    return {"message": f"Updated status to {req.status}", "job": job}
+    job.status = req.status
+    db.commit()
+    
+    await ws_manager.broadcast({"type": "jobs_updated", "message": f"Updated status to {req.status}"})
+    
+    return {"message": f"Updated status to {req.status}"}
 
 @app.get("/api/stats")
-def get_stats():
-    total_jobs = len(SAMPLE_JOBS)
-    saved = len([j for j in SAMPLE_JOBS if j["status"] == "Saved"])
-    applied = len([j for j in SAMPLE_JOBS if j["status"] == "Applied"])
-    interviewing = len([j for j in SAMPLE_JOBS if j["status"] == "Interviewing"])
-    offered = len([j for j in SAMPLE_JOBS if j["status"] == "Offered"])
-    avg_score = int(sum(j["match_score"] for j in SAMPLE_JOBS if j["match_score"]) / max(total_jobs, 1))
+def get_stats(db: Session = Depends(get_db)):
+    total_jobs = db.query(DBJobListing).count()
+    saved = db.query(DBJobListing).filter(DBJobListing.status == "Saved").count()
+    applied = db.query(DBJobListing).filter(DBJobListing.status == "Applied").count()
+    interviewing = db.query(DBJobListing).filter(DBJobListing.status == "Interviewing").count()
+    offered = db.query(DBJobListing).filter(DBJobListing.status == "Offered").count()
+    
+    jobs = db.query(DBJobListing).all()
+    avg_score = int(sum(j.match_score for j in jobs if j.match_score) / max(total_jobs, 1))
 
     return {
         "total_jobs_scraped": total_jobs,
