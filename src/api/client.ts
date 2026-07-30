@@ -273,3 +273,42 @@ export async function updateSources(sources: JobSource[]): Promise<JobSource[]> 
   } catch {}
   return sources;
 }
+
+export async function fetchProfile(): Promise<CandidateProfile> {
+  try {
+    const res = await fetch(`${API_BASE}/profile`);
+    if (res.ok) return await res.json();
+  } catch {}
+  return INITIAL_PROFILE;
+}
+
+export async function updateProfile(profile: CandidateProfile): Promise<CandidateProfile> {
+  try {
+    const res = await fetch(`${API_BASE}/profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(profile)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.profile;
+    }
+  } catch {}
+  return profile;
+}
+
+export async function parseResume(resumeText: string, locationPreference: string = 'Remote', targetTitle: string = ''): Promise<{ profile: CandidateProfile; extracted_skills: string[]; matched_jobs_count: number }> {
+  try {
+    const res = await fetch(`${API_BASE}/resume/parse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resume_text: resumeText, location_preference: locationPreference, target_title: targetTitle })
+    });
+    if (res.ok) return await res.json();
+  } catch {}
+  return {
+    profile: { ...INITIAL_PROFILE, location_preference: locationPreference, has_completed_onboarding: true },
+    extracted_skills: ['Python', 'React', 'FastAPI', 'TypeScript'],
+    matched_jobs_count: 5
+  };
+}

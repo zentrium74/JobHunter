@@ -23,6 +23,7 @@ export interface CandidateProfile {
   target_salary_max: number;
   location_preference: string;
   bio: string;
+  has_completed_onboarding?: boolean;
 }
 
 export interface JobSource {

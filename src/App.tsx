@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { JobListing, CandidateProfile, SystemStats, LLMSettings, JobSource } from './types';
-import { fetchJobs, fetchStats, fetchSettings, fetchSources, INITIAL_PROFILE, triggerScrape } from './api/client';
+import { fetchJobs, fetchStats, fetchSettings, fetchSources, fetchProfile, INITIAL_PROFILE, triggerScrape, updateProfile } from './api/client';
 import { Navigation } from './components/Navigation';
 import { SettingsModal } from './components/SettingsModal';
 import { SourceManagerModal } from './components/SourceManagerModal';
+import { OnboardingModal } from './components/OnboardingModal';
 import { Dashboard } from './features/Dashboard';
 import { JobBoard } from './features/JobBoard';
 import { AIRanker } from './features/AIRanker';
@@ -18,6 +19,7 @@ export function App() {
   const [selectedJobId, setSelectedJobId] = useState<string>('job-1');
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isSourceManagerOpen, setIsSourceManagerOpen] = useState<boolean>(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(false);
   const [sources, setSources] = useState<JobSource[]>([]);
   const [settings, setSettings] = useState<LLMSettings>({
     provider: 'ollama',
@@ -42,6 +44,12 @@ export function App() {
     });
     fetchSettings().then(setSettings);
     fetchSources().then(setSources);
+    fetchProfile().then((p: CandidateProfile) => {
+      setProfile(p);
+      if (!p.has_completed_onboarding) {
+        setIsOnboardingOpen(true);
+      }
+    });
   }, []);
 
   const handleScrape = async (query: string, location: string) => {
@@ -51,6 +59,13 @@ export function App() {
     if (updatedJobs.length > 0) setSelectedJobId(updatedJobs[0].id);
     const updatedStats = await fetchStats(updatedJobs);
     setStats(updatedStats);
+  };
+
+  const handleOnboardingComplete = async (parsedProfile: CandidateProfile) => {
+    setProfile(parsedProfile);
+    setIsOnboardingOpen(false);
+    await updateProfile(parsedProfile);
+    await handleScrape(parsedProfile.skills[0] || parsedProfile.target_title, parsedProfile.location_preference);
   };
 
   const handleUpdateStatus = (jobId: string, newStatus: JobListing['status']) => {
@@ -131,6 +146,12 @@ export function App() {
           />
         )}
       </main>
+
+      {/* First Time Onboarding Modal */}
+      <OnboardingModal
+        isOpen={isOnboardingOpen}
+        onComplete={handleOnboardingComplete}
+      />
 
       {/* Bring Your Own Key Modal */}
       <SettingsModal

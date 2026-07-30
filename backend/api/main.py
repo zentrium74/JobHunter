@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, List, Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -51,13 +52,19 @@ class CandidateProfile(BaseModel):
     experience_years: int = 6
     target_salary_min: int = 140000
     target_salary_max: int = 190000
-    location_preference: str = "Remote / San Francisco, CA"
+    location_preference: str = "Remote"
     bio: str = "Senior Engineer specializing in AI-native software, vector search, and high-performance React/FastAPI systems."
+    has_completed_onboarding: bool = False
+
+class ResumeParseRequest(BaseModel):
+    resume_text: str
+    location_preference: Optional[str] = "Remote"
+    target_title: Optional[str] = ""
 
 class JobSource(BaseModel):
     id: str
     name: str
-    type: str = "api"  # api, greenhouse, lever, rss, json
+    type: str = "api"
     url: str
     enabled: bool = True
 
@@ -74,7 +81,7 @@ class RankRequest(BaseModel):
 class GenerateDocumentRequest(BaseModel):
     job_id: str
     doc_type: str = "cover_letter"
-    template_style: Optional[str] = "modern"  # modern, executive, classic, minimal
+    template_style: Optional[str] = "modern"
 
 class CRMStatusUpdate(BaseModel):
     job_id: str
@@ -85,6 +92,8 @@ class CRMStatusUpdate(BaseModel):
 
 SAMPLE_JOBS: List[dict] = []
 CURRENT_SOURCES: List[dict] = list(DEFAULT_SOURCES)
+CURRENT_PROFILE = CandidateProfile()
+CURRENT_SETTINGS = LLMSettings()
 
 # Fetch real live jobs on startup
 try:
@@ -113,8 +122,23 @@ if not SAMPLE_JOBS:
         }
     ]
 
-CURRENT_PROFILE = CandidateProfile()
-CURRENT_SETTINGS = LLMSettings()
+# ─── Helper Skill Parser ─────────────────────────────────────────────────────
+
+KNOWN_SKILLS = [
+    "Python", "TypeScript", "JavaScript", "React", "Next.js", "Vue", "Node.js",
+    "FastAPI", "Django", "Flask", "PyTorch", "TensorFlow", "LLMs", "LangChain",
+    "LiteLLM", "Docker", "Kubernetes", "PostgreSQL", "MongoDB", "Redis",
+    "TailwindCSS", "AWS", "GCP", "Azure", "GraphQL", "Vector Search", "LanceDB", "RAG"
+]
+
+def parse_skills_from_text(text: str) -> List[str]:
+    found = []
+    text_lower = text.lower()
+    for skill in KNOWN_SKILLS:
+        pattern = r'\b' + re.escape(skill.lower()) + r'\b'
+        if re.search(pattern, text_lower):
+            found.append(skill)
+    return found if found else ["Python", "React", "FastAPI", "TypeScript", "LLMs"]
 
 # ─── API Routes ──────────────────────────────────────────────────────────────
 
@@ -127,8 +151,50 @@ def health_check():
         "model": CURRENT_SETTINGS.model,
         "live_jobs_count": len(SAMPLE_JOBS),
         "active_sources_count": len([s for s in CURRENT_SOURCES if s["enabled"]]),
+        "has_completed_onboarding": CURRENT_PROFILE.has_completed_onboarding,
         "vector_store": "LanceDB",
         "memory_layer": "mem0"
+    }
+
+@app.post("/api/resume/parse")
+def parse_and_save_resume(req: ResumeParseRequest):
+    global CURRENT_PROFILE, SAMPLE_JOBS
+    
+    extracted_skills = parse_skills_from_text(req.resume_text)
+    
+    # Infer target title
+    title = req.target_title if req.target_title and req.target_title.strip() else "Senior AI / Software Engineer"
+    if "data" in req.resume_text.lower() and "engineer" in req.resume_text.lower():
+        title = "Data / AI Infrastructure Engineer"
+    elif "frontend" in req.resume_text.lower() or "react" in req.resume_text.lower():
+        title = "Senior Full Stack / Frontend Engineer"
+
+    loc = req.location_preference if req.location_preference and req.location_preference.strip() else "Remote"
+
+    CURRENT_PROFILE = CandidateProfile(
+        id="user-profile",
+        name="Candidate User",
+        target_title=title,
+        skills=extracted_skills,
+        experience_years=5,
+        target_salary_min=135000,
+        target_salary_max=195000,
+        location_preference=loc,
+        bio=req.resume_text[:300] + "...",
+        has_completed_onboarding=True
+    )
+
+    # Immediately trigger live profile-tailored scrape based on extracted skills & location!
+    query_term = extracted_skills[0] if extracted_skills else "AI"
+    fresh_jobs = fetch_live_jobs(query=query_term, location=loc, custom_sources=CURRENT_SOURCES)
+    if fresh_jobs:
+        SAMPLE_JOBS = fresh_jobs
+
+    return {
+        "message": "Resume parsed & candidate profile initialized successfully",
+        "profile": CURRENT_PROFILE,
+        "extracted_skills": extracted_skills,
+        "matched_jobs_count": len(SAMPLE_JOBS)
     }
 
 @app.get("/api/sources", response_model=List[JobSource])
@@ -175,9 +241,9 @@ def get_jobs(status: Optional[str] = None):
 @app.post("/api/scrape")
 def trigger_scrape(query: str = "AI", location: str = "Remote"):
     global SAMPLE_JOBS
-    # Automatically incorporate candidate target title if query not supplied
     search_query = query if query and query.strip() else CURRENT_PROFILE.target_title
-    fresh_jobs = fetch_live_jobs(query=search_query, location=location, custom_sources=CURRENT_SOURCES)
+    search_loc = location if location and location.strip() else CURRENT_PROFILE.location_preference
+    fresh_jobs = fetch_live_jobs(query=search_query, location=search_loc, custom_sources=CURRENT_SOURCES)
     
     if fresh_jobs:
         existing_ids = set(j["id"] for j in SAMPLE_JOBS)
@@ -231,7 +297,7 @@ def rank_job(req: RankRequest):
             "skill_match_pct": int(skill_ratio * 100),
             "experience_fit": f"High Fit ({profile.experience_years} years vs 5+ required)",
             "salary_alignment": "100% within target range",
-            "remote_preference": "100% Remote match"
+            "remote_preference": f"100% {profile.location_preference} match"
         },
         "ai_recommendation": f"Strong application candidate. Powered by {CURRENT_SETTINGS.provider.title()} ({CURRENT_SETTINGS.model}). Highlight your expertise in {', '.join(matching_skills[:3]) if matching_skills else 'software architecture'}."
     }
@@ -280,7 +346,7 @@ Thank you for your consideration.
 
 Respectfully,
 {name}"""
-        else: # Modern / Minimal
+        else:
             content = f"""Dear Hiring Team at {company},
 
 I am writing to express my enthusiastic interest in the {title} position. With over {CURRENT_PROFILE.experience_years} years of software engineering experience specializing in {', '.join(CURRENT_PROFILE.skills[:4])}, I have consistently built scalable, high-performance systems that align directly with {company}'s engineering goals.
@@ -296,7 +362,7 @@ Thank you for your time and consideration. I look forward to discussing how my b
 
 Sincerely,
 {name}"""
-    else: # Resume Bullets
+    else:
         content = f"""### {style.upper()} TAILORED RESUME BULLETS
 Role: {title} | Company: {company}
 
