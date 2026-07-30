@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { JobListing, CandidateProfile, SystemStats, LLMSettings } from './types';
-import { fetchJobs, fetchStats, fetchSettings, INITIAL_PROFILE, triggerScrape } from './api/client';
+import { JobListing, CandidateProfile, SystemStats, LLMSettings, JobSource } from './types';
+import { fetchJobs, fetchStats, fetchSettings, fetchSources, INITIAL_PROFILE, triggerScrape } from './api/client';
 import { Navigation } from './components/Navigation';
 import { SettingsModal } from './components/SettingsModal';
+import { SourceManagerModal } from './components/SourceManagerModal';
 import { Dashboard } from './features/Dashboard';
 import { JobBoard } from './features/JobBoard';
 import { AIRanker } from './features/AIRanker';
@@ -16,6 +17,8 @@ export function App() {
   const [profile, setProfile] = useState<CandidateProfile>(INITIAL_PROFILE);
   const [selectedJobId, setSelectedJobId] = useState<string>('job-1');
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isSourceManagerOpen, setIsSourceManagerOpen] = useState<boolean>(false);
+  const [sources, setSources] = useState<JobSource[]>([]);
   const [settings, setSettings] = useState<LLMSettings>({
     provider: 'ollama',
     model: 'qwen2.5-coder:7b',
@@ -34,16 +37,18 @@ export function App() {
   useEffect(() => {
     fetchJobs().then((data) => {
       setJobs(data);
+      if (data.length > 0) setSelectedJobId(data[0].id);
       fetchStats(data).then(setStats);
     });
     fetchSettings().then(setSettings);
+    fetchSources().then(setSources);
   }, []);
 
   const handleScrape = async (query: string, location: string) => {
-    const newJob = await triggerScrape(query, location);
-    const updatedJobs = [newJob, ...jobs];
+    await triggerScrape(query, location);
+    const updatedJobs = await fetchJobs();
     setJobs(updatedJobs);
-    setSelectedJobId(newJob.id);
+    if (updatedJobs.length > 0) setSelectedJobId(updatedJobs[0].id);
     const updatedStats = await fetchStats(updatedJobs);
     setStats(updatedStats);
   };
@@ -85,6 +90,8 @@ export function App() {
             onSelectJob={setSelectedJobId}
             onUpdateStatus={handleUpdateStatus}
             setActiveTab={setActiveTab}
+            onOpenSourceManager={() => setIsSourceManagerOpen(true)}
+            sources={sources}
           />
         )}
 
@@ -131,6 +138,15 @@ export function App() {
         onClose={() => setIsSettingsOpen(false)}
         currentSettings={settings}
         onSave={setSettings}
+      />
+
+      {/* Sourcing Channels Manager Modal */}
+      <SourceManagerModal
+        isOpen={isSourceManagerOpen}
+        onClose={() => setIsSourceManagerOpen(false)}
+        sources={sources}
+        onSave={setSources}
+        onTriggerScrape={() => handleScrape(profile.target_title, profile.location_preference)}
       />
 
       {/* Footer */}

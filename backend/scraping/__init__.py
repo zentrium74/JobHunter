@@ -1,0 +1,1 @@
+"""JobHunter live scraping module."""

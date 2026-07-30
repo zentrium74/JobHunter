@@ -10,6 +10,7 @@ export interface JobListing {
   posted_date: string;
   match_score?: number;
   status: 'Discovered' | 'Saved' | 'Applied' | 'Interviewing' | 'Offered' | 'Rejected';
+  source_name?: string;
 }
 
 export interface CandidateProfile {
@@ -22,6 +23,14 @@ export interface CandidateProfile {
   target_salary_max: number;
   location_preference: string;
   bio: string;
+}
+
+export interface JobSource {
+  id: string;
+  name: string;
+  type: 'api' | 'greenhouse' | 'lever' | 'rss' | 'json';
+  url: string;
+  enabled: boolean;
 }
 
 export interface RankResult {
@@ -43,6 +52,7 @@ export interface RankResult {
 export interface DocumentResult {
   job_id: string;
   doc_type: 'cover_letter' | 'resume_bullets';
+  template_style?: 'modern' | 'executive' | 'classic' | 'minimal';
   content: string;
   evaluation: {
     passed: boolean;

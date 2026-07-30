@@ -1,4 +1,4 @@
-import { JobListing, CandidateProfile, RankResult, DocumentResult, SystemStats, LLMSettings } from '../types';
+import { JobListing, CandidateProfile, RankResult, DocumentResult, SystemStats, LLMSettings, JobSource } from '../types';
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -148,12 +148,18 @@ export async function rankJob(jobId: string, job: JobListing, profile: Candidate
   };
 }
 
-export async function generateDocument(jobId: string, docType: 'cover_letter' | 'resume_bullets', job: JobListing, profile: CandidateProfile): Promise<DocumentResult> {
+export async function generateDocument(
+  jobId: string,
+  docType: 'cover_letter' | 'resume_bullets',
+  job: JobListing,
+  profile: CandidateProfile,
+  templateStyle: 'modern' | 'executive' | 'classic' | 'minimal' = 'modern'
+): Promise<DocumentResult> {
   try {
     const res = await fetch(`${API_BASE}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: jobId, doc_type: docType })
+      body: JSON.stringify({ job_id: jobId, doc_type: docType, template_style: templateStyle })
     });
     if (res.ok) return await res.json();
   } catch {}
@@ -239,4 +245,31 @@ export async function updateSettings(settings: LLMSettings): Promise<LLMSettings
     }
   } catch {}
   return settings;
+}
+
+export async function fetchSources(): Promise<JobSource[]> {
+  try {
+    const res = await fetch(`${API_BASE}/sources`);
+    if (res.ok) return await res.json();
+  } catch {}
+  return [
+    { id: 's-1', name: 'Remotive API', type: 'api', url: 'https://remotive.com/api/remote-jobs?limit=15', enabled: true },
+    { id: 's-2', name: 'Jobicy Feed', type: 'api', url: 'https://jobicy.com/api/v2/remote-jobs?count=10', enabled: true },
+    { id: 's-3', name: 'Greenhouse Tech Roles', type: 'greenhouse', url: 'https://boards-api.greenhouse.io/v1/boards/stripe/jobs', enabled: true }
+  ];
+}
+
+export async function updateSources(sources: JobSource[]): Promise<JobSource[]> {
+  try {
+    const res = await fetch(`${API_BASE}/sources`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sources)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.sources;
+    }
+  } catch {}
+  return sources;
 }

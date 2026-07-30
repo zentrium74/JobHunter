@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { JobListing, CandidateProfile, DocumentResult } from '../types';
 import { generateDocument } from '../api/client';
-import { FileText, Sparkles, Copy, Check, Download, Award, Loader2, ArrowRight } from 'lucide-react';
+import { FileText, Sparkles, Copy, Check, Award, Loader2, ArrowRight, Printer } from 'lucide-react';
 
 interface DocGeneratorProps {
   jobs: JobListing[];
@@ -19,6 +19,7 @@ export const DocGenerator: React.FC<DocGeneratorProps> = ({
   setActiveTab
 }) => {
   const [docType, setDocType] = useState<'cover_letter' | 'resume_bullets'>('cover_letter');
+  const [templateStyle, setTemplateStyle] = useState<'modern' | 'executive' | 'classic' | 'minimal'>('modern');
   const [documentResult, setDocumentResult] = useState<DocumentResult | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -28,7 +29,7 @@ export const DocGenerator: React.FC<DocGeneratorProps> = ({
   const handleGenerate = async () => {
     if (!selectedJob) return;
     setIsGenerating(true);
-    const res = await generateDocument(selectedJob.id, docType, selectedJob, profile);
+    const res = await generateDocument(selectedJob.id, docType, selectedJob, profile, templateStyle);
     setDocumentResult(res);
     setIsGenerating(false);
   };
@@ -41,16 +42,68 @@ export const DocGenerator: React.FC<DocGeneratorProps> = ({
     }
   };
 
-  const handleDownload = () => {
-    if (documentResult) {
-      const element = document.createElement('a');
-      const file = new Blob([documentResult.content], { type: 'text/plain' });
-      element.href = URL.createObjectURL(file);
-      element.download = `${selectedJob.company}_${docType}.txt`;
-      document.body.appendChild(element);
-      element.click();
-      document.body.removeChild(element);
-    }
+  const handleDownloadPDF = () => {
+    if (!documentResult || !selectedJob) return;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${profile.name} - ${selectedJob.company} (${docType === 'cover_letter' ? 'Cover Letter' : 'Resume'})</title>
+          <style>
+            body {
+              font-family: ${templateStyle === 'classic' ? 'Georgia, serif' : 'Inter, Helvetica, Arial, sans-serif'};
+              padding: 40px;
+              color: #1e293b;
+              line-height: 1.6;
+              max-width: 800px;
+              margin: 0 auto;
+            }
+            .header {
+              border-bottom: 2px solid ${templateStyle === 'executive' ? '#0f172a' : '#10b981'};
+              padding-bottom: 15px;
+              margin-bottom: 25px;
+            }
+            .name {
+              font-size: 24px;
+              font-weight: bold;
+              text-transform: ${templateStyle === 'executive' ? 'uppercase' : 'none'};
+              color: #0f172a;
+            }
+            .meta {
+              font-size: 12px;
+              color: #64748b;
+              margin-top: 4px;
+            }
+            .content {
+              white-space: pre-wrap;
+              font-size: 14px;
+            }
+            @media print {
+              body { padding: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="name">${profile.name}</div>
+            <div class="meta">${profile.target_title} | ${profile.location_preference}</div>
+          </div>
+          <div class="content">${documentResult.content}</div>
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
   };
 
   return (
@@ -60,9 +113,9 @@ export const DocGenerator: React.FC<DocGeneratorProps> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <FileText className="w-6 h-6 text-emerald-400" /> AI Document Tailoring Generator
+              <FileText className="w-6 h-6 text-emerald-400" /> AI Document & PDF Generator
             </h1>
-            <p className="text-xs text-slate-400">Generate cover letters & resume bullets verified by DeepEval quality checks</p>
+            <p className="text-xs text-slate-400">Generate styled cover letters & resume bullets verified by DeepEval</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -102,6 +155,17 @@ export const DocGenerator: React.FC<DocGeneratorProps> = ({
                 Resume Bullets
               </button>
             </div>
+
+            {/* Template Style Selector */}
+            <select
+              value={templateStyle}
+              onChange={(e) => setTemplateStyle(e.target.value as any)}
+              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-emerald-400 font-bold focus:outline-none focus:border-emerald-500"
+            >
+              <option value="modern">Modern Minimalist</option>
+              <option value="executive">Executive Tech</option>
+              <option value="classic">Classic Formal</option>
+            </select>
 
             {/* Generate Action */}
             <button
@@ -159,7 +223,7 @@ export const DocGenerator: React.FC<DocGeneratorProps> = ({
                   <Award className="w-6 h-6 text-emerald-400 flex-shrink-0" />
                   <div>
                     <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                      DeepEval Quality Verified • Pass ({(documentResult.evaluation.overall_score * 100).toFixed(0)}%)
+                      DeepEval Verified • {templateStyle.toUpperCase()} TEMPLATE • Pass ({(documentResult.evaluation.overall_score * 100).toFixed(0)}%)
                     </div>
                     <div className="text-xs text-slate-300">
                       Answer Relevancy: {(documentResult.evaluation.metrics.AnswerRelevancyMetric * 100).toFixed(0)}% | Faithfulness: {(documentResult.evaluation.metrics.FaithfulnessMetric * 100).toFixed(0)}%
@@ -175,11 +239,13 @@ export const DocGenerator: React.FC<DocGeneratorProps> = ({
                     {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                     {copied ? 'Copied' : 'Copy'}
                   </button>
+
                   <button
-                    onClick={handleDownload}
-                    className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1 transition-all"
+                    onClick={handleDownloadPDF}
+                    className="px-3 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold flex items-center gap-1.5 transition-all shadow-md"
+                    title="Generate & Export PDF Document"
                   >
-                    <Download className="w-4 h-4" /> Download
+                    <Printer className="w-4 h-4" /> Download PDF
                   </button>
                 </div>
               </div>
@@ -195,7 +261,7 @@ export const DocGenerator: React.FC<DocGeneratorProps> = ({
               <div className="space-y-1">
                 <h3 className="text-lg font-bold text-white">Ready to Generate Application Material</h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Click "Generate Material" above to create a tailored cover letter or bullet points for {selectedJob?.company}.
+                  Select a template style above and click "Generate Material" to create a tailored cover letter or resume PDF for {selectedJob?.company}.
                 </p>
               </div>
               <button
