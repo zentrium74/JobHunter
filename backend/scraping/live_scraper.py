@@ -16,7 +16,8 @@ from typing import List, Dict, Any, Optional
 DEFAULT_SOURCES = [
     {"id": "s-1", "name": "Remotive API", "type": "api", "url": "https://remotive.com/api/remote-jobs", "enabled": True},
     {"id": "s-2", "name": "Jobicy Feed", "type": "api", "url": "https://jobicy.com/api/v2/remote-jobs", "enabled": True},
-    {"id": "s-3", "name": "Greenhouse Tech Roles", "type": "greenhouse", "url": "https://boards-api.greenhouse.io/v1/boards/stripe/jobs", "enabled": True}
+    {"id": "s-3", "name": "Greenhouse (Stripe)", "type": "greenhouse", "url": "https://boards-api.greenhouse.io/v1/boards/stripe/jobs", "enabled": True},
+    {"id": "s-4", "name": "Lever (Netflix)", "type": "lever", "url": "https://api.lever.co/v0/postings/netflix", "enabled": True}
 ]
 
 KNOWN_SKILLS = [
@@ -120,6 +121,70 @@ def fetch_live_jobs(query: str = "AI", location: str = "Remote", custom_sources:
                             "skills_required": extracted_skills[:8] if extracted_skills else ["Python", "JavaScript", "AWS"],
                             "posted_date": "Active posting",
                             "match_score": 91 + (index % 7),
+                            "status": "Discovered",
+                            "source_name": name,
+                            "full_desc": job_desc
+                        })
+            except Exception as e:
+                print(f"Error fetching {name}: {e}")
+
+        elif "greenhouse.io" in url or s_type == "greenhouse":
+            try:
+                req_url = url if "?" in url else f"{url}?content=true"
+                req = urllib.request.Request(req_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    jobs = data.get('jobs', [])
+                    for index, j in enumerate(jobs):
+                        title = j.get('title', 'Software Engineer')
+                        company = name.replace("Greenhouse", "").replace("(", "").replace(")", "").strip() or 'Tech Company'
+                        job_desc = j.get('content', '') or j.get('absolute_url', '')
+                        clean_desc = re.sub(r'<[^>]+>', ' ', job_desc)[:350] + "..."
+                        
+                        extracted_skills = _extract_skills(job_desc)
+                        
+                        results.append({
+                            "id": f"greenhouse-{j.get('id', index)}",
+                            "title": title,
+                            "company": company,
+                            "location": j.get('location', {}).get('name', 'Remote'),
+                            "remote": "remote" in j.get('location', {}).get('name', 'remote').lower(),
+                            "salary_range": "Competitive",
+                            "description": clean_desc,
+                            "skills_required": extracted_skills[:8] if extracted_skills else ["Python", "Engineering"],
+                            "posted_date": j.get('updated_at', 'Recently')[:10],
+                            "match_score": 90 + (index % 10),
+                            "status": "Discovered",
+                            "source_name": name,
+                            "full_desc": job_desc
+                        })
+            except Exception as e:
+                print(f"Error fetching {name}: {e}")
+
+        elif "lever.co" in url or s_type == "lever":
+            try:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    jobs = json.loads(response.read().decode('utf-8'))
+                    for index, j in enumerate(jobs):
+                        title = j.get('text', 'Software Engineer')
+                        company = name.replace("Lever", "").replace("(", "").replace(")", "").strip() or 'Tech Company'
+                        job_desc = j.get('descriptionPlain', '')
+                        clean_desc = job_desc[:350] + "..."
+                        
+                        extracted_skills = _extract_skills(job_desc)
+                        
+                        results.append({
+                            "id": f"lever-{j.get('id', index)}",
+                            "title": title,
+                            "company": company,
+                            "location": j.get('categories', {}).get('location', 'Remote'),
+                            "remote": "remote" in j.get('categories', {}).get('location', 'remote').lower(),
+                            "salary_range": "Competitive",
+                            "description": clean_desc,
+                            "skills_required": extracted_skills[:8] if extracted_skills else ["Python", "Engineering"],
+                            "posted_date": "Active Posting",
+                            "match_score": 88 + (index % 12),
                             "status": "Discovered",
                             "source_name": name,
                             "full_desc": job_desc

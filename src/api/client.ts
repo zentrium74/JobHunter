@@ -255,7 +255,8 @@ export async function fetchSources(): Promise<JobSource[]> {
   return [
     { id: 's-1', name: 'Remotive API', type: 'api', url: 'https://remotive.com/api/remote-jobs?limit=15', enabled: true },
     { id: 's-2', name: 'Jobicy Feed', type: 'api', url: 'https://jobicy.com/api/v2/remote-jobs?count=10', enabled: true },
-    { id: 's-3', name: 'Greenhouse Tech Roles', type: 'greenhouse', url: 'https://boards-api.greenhouse.io/v1/boards/stripe/jobs', enabled: true }
+    { id: 's-3', name: 'Greenhouse (Stripe)', type: 'greenhouse', url: 'https://boards-api.greenhouse.io/v1/boards/stripe/jobs', enabled: true },
+    { id: 's-4', name: 'Lever (Netflix)', type: 'lever', url: 'https://api.lever.co/v0/postings/netflix', enabled: true }
   ];
 }
 
@@ -274,12 +275,16 @@ export async function updateSources(sources: JobSource[]): Promise<JobSource[]> 
   return sources;
 }
 
-export async function fetchProfile(): Promise<CandidateProfile> {
-  try {
-    const res = await fetch(`${API_BASE}/profile`);
-    if (res.ok) return await res.json();
-  } catch {}
-  return INITIAL_PROFILE;
+export async function fetchProfile(retries = 3): Promise<CandidateProfile> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(`${API_BASE}/profile`);
+      if (res.ok) return await res.json();
+    } catch {
+      if (i < retries - 1) await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+  return { ...INITIAL_PROFILE, has_completed_onboarding: false };
 }
 
 export async function updateProfile(profile: CandidateProfile): Promise<CandidateProfile> {
