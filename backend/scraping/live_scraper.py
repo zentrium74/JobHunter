@@ -13,11 +13,14 @@ import json
 import re
 from typing import List, Dict, Any, Optional
 
+from backend.scraping.ats_scanner import run_ats_discovery_scan, DEFAULT_TOP_SLUGS
+
 DEFAULT_SOURCES = [
     {"id": "s-1", "name": "Remotive API", "type": "api", "url": "https://remotive.com/api/remote-jobs", "enabled": True},
     {"id": "s-2", "name": "Jobicy Feed", "type": "api", "url": "https://jobicy.com/api/v2/remote-jobs", "enabled": True},
     {"id": "s-3", "name": "Greenhouse (Stripe)", "type": "greenhouse", "url": "https://boards-api.greenhouse.io/v1/boards/stripe/jobs", "enabled": True},
-    {"id": "s-4", "name": "Lever (Netflix)", "type": "lever", "url": "https://api.lever.co/v0/postings/netflix", "enabled": True}
+    {"id": "s-4", "name": "Lever (Netflix)", "type": "lever", "url": "https://api.lever.co/v0/postings/netflix", "enabled": True},
+    {"id": "s-5", "name": "Ashby (OpenAI)", "type": "ashby", "url": "https://api.ashbyhq.com/posting-api/job-board/openai", "enabled": True}
 ]
 
 KNOWN_SKILLS = [

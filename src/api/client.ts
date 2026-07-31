@@ -114,6 +114,23 @@ export async function triggerScrape(query: string, location: string): Promise<Jo
   };
 }
 
+export async function triggerATSScan(atsSources: string[], limitPerAts: number = 15, query: string = '', location: string = 'Remote'): Promise<any> {
+  try {
+    const res = await fetch(`${API_BASE}/scan/ats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ats_sources: atsSources,
+        limit_per_ats: limitPerAts,
+        query: query,
+        location: location
+      })
+    });
+    if (res.ok) return await res.json();
+  } catch {}
+  return { message: 'Scan complete', new_jobs: [] };
+}
+
 export async function rankJob(jobId: string, job: JobListing, profile: CandidateProfile): Promise<RankResult> {
   try {
     const res = await fetch(`${API_BASE}/rank`, {

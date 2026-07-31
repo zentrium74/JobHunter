@@ -134,6 +134,33 @@ export const SourceManagerModal: React.FC<SourceManagerModalProps> = ({
           </div>
         </div>
 
+        {/* Reverse ATS Discovery Scan Section */}
+        <div className="p-4 rounded-xl bg-slate-950 border border-emerald-500/30 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="px-2 py-0.5 rounded text-[10px] uppercase font-bold font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                Career Ops Engine
+              </span>
+              <h3 className="text-xs font-bold text-white">Reverse ATS Discovery Scan</h3>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                const { triggerATSScan } = await import('../api/client');
+                await triggerATSScan(['greenhouse', 'lever', 'ashby', 'workday'], 15);
+                onTriggerScrape();
+                onClose();
+              }}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 text-xs font-extrabold shadow-md transition-all flex items-center gap-1"
+            >
+              <Globe className="w-3.5 h-3.5" /> Scan All ATS Directories
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            Performs a zero-cost API scan across public directories for <strong>Greenhouse</strong>, <strong>Lever</strong>, <strong>Ashby</strong>, and <strong>Workday</strong> to surface fresh tech roles automatically.
+          </p>
+        </div>
+
         {/* Existing Source List */}
         <div className="space-y-2">
           <h3 className="text-xs font-bold text-slate-300">Active Job Channels ({sourceList.length})</h3>

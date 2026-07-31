@@ -134,6 +134,12 @@ class CRMStatusUpdate(BaseModel):
     status: str
     notes: Optional[str] = ""
 
+class ATSScanRequest(BaseModel):
+    ats_sources: List[str] = ["greenhouse", "lever", "ashby"]
+    limit_per_ats: int = 15
+    query: Optional[str] = "AI"
+    location: Optional[str] = "Remote"
+
 # ─── Live Job Store & Memory ─────────────────────────────────────────────────
 
 CURRENT_SOURCES: List[dict] = list(DEFAULT_SOURCES)
@@ -370,7 +376,56 @@ async def trigger_scrape(query: str = "AI", location: str = "Remote", db: Sessio
             "new_jobs": new_items[:5]
         }
     
-    return {"message": "No new unique roles found from active channels", "job_count": job_count, "new_jobs": []}
+from backend.scraping.ats_scanner import run_ats_discovery_scan
+
+@app.post("/api/scan/ats")
+async def trigger_ats_scan(req: ATSScanRequest, db: Session = Depends(get_db)):
+    profile = _get_or_create_profile(db)
+    search_query = req.query if req.query and req.query.strip() else profile.target_title
+    search_loc = req.location if req.location and req.location.strip() else profile.location_preference
+
+    async def _progress_cb(msg: dict):
+        await ws_manager.broadcast(msg)
+
+    await ws_manager.broadcast({"type": "notification", "message": f"Deploying Reverse ATS Scanner across {', '.join(req.ats_sources)}..."})
+
+    discovered_jobs = await run_ats_discovery_scan(
+        ats_list=req.ats_sources,
+        limit_per_ats=req.limit_per_ats,
+        query=search_query,
+        location=search_loc,
+        profile_skills=profile.skills,
+        progress_callback=_progress_cb
+    )
+
+    saved_count = 0
+    new_items = []
+    if discovered_jobs:
+        for j in discovered_jobs:
+            existing = db.query(DBJobListing).filter(DBJobListing.id == j["id"]).first()
+            if not existing:
+                new_job = DBJobListing(
+                    id=j["id"], title=j["title"], company=j["company"], location=j["location"],
+                    remote=j["remote"], salary_range=j["salary_range"], description=j["description"],
+                    skills_required=j["skills_required"], posted_date=j["posted_date"],
+                    match_score=j["match_score"], status=j["status"], source_name=j["source_name"]
+                )
+                db.add(new_job)
+                saved_count += 1
+                new_items.append(j)
+        db.commit()
+
+    job_count = db.query(DBJobListing).count()
+
+    if saved_count > 0:
+        await ws_manager.broadcast({"type": "jobs_updated", "message": f"Discovered {saved_count} new roles via Reverse ATS scan!"})
+        return {
+            "message": f"Successfully discovered {saved_count} fresh roles across public ATS directories",
+            "job_count": job_count,
+            "new_jobs": new_items[:5]
+        }
+
+    return {"message": "Reverse ATS discovery scan complete. No new unique roles found.", "job_count": job_count, "new_jobs": []}
 
 @app.get("/api/profile", response_model=CandidateProfile)
 def get_profile(db: Session = Depends(get_db)):
