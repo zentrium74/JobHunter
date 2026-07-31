@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { JobListing, JobSource } from '../types';
-import { Search, MapPin, Building, DollarSign, Filter, RefreshCw, Globe, Plus } from 'lucide-react';
+import { Search, MapPin, Building, DollarSign, Filter, RefreshCw, Globe, Plus, Briefcase } from 'lucide-react';
 
 interface JobBoardProps {
   jobs: JobListing[];
@@ -66,12 +66,16 @@ export const JobBoard: React.FC<JobBoardProps> = ({
     setIsScraping(false);
   };
 
+  const [selectedExperience, setSelectedExperience] = useState<string>('All');
+
   const allSkills = Array.from(new Set(jobs.flatMap((j) => j.skills_required)));
 
   const filteredJobs = jobs.filter((job) => {
+    const titleLower = job.title.toLowerCase();
+
     const matchesQuery =
       searchQuery === '' ||
-      job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      titleLower.includes(searchQuery.toLowerCase()) ||
       job.company.toLowerCase().includes(searchQuery.toLowerCase()) ||
       job.description.toLowerCase().includes(searchQuery.toLowerCase());
 
@@ -85,7 +89,19 @@ export const JobBoard: React.FC<JobBoardProps> = ({
           : job.location.toLowerCase().includes(loc.toLowerCase())
       );
 
-    return matchesQuery && matchesSkill && matchesLocation;
+    let matchesExperience = true;
+    const isSeniorLead = /senior|sr\.|lead|staff|principal|director|head|vp|manager/i.test(titleLower);
+    const isJuniorEntry = /junior|entry|associate|graduate|intern|trainee/i.test(titleLower);
+
+    if (selectedExperience === 'Entry-Level') {
+      matchesExperience = isJuniorEntry || (!isSeniorLead);
+    } else if (selectedExperience === 'Mid-Level') {
+      matchesExperience = !isJuniorEntry && !/staff|principal|director|head|vp/i.test(titleLower);
+    } else if (selectedExperience === 'Senior / Lead') {
+      matchesExperience = isSeniorLead;
+    }
+
+    return matchesQuery && matchesSkill && matchesLocation && matchesExperience;
   });
 
   return (
@@ -191,6 +207,26 @@ export const JobBoard: React.FC<JobBoardProps> = ({
             </button>
           )}
         </div>
+      </div>
+
+      {/* Experience Level Filter Pills */}
+      <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-thin">
+        <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
+          <Briefcase className="w-3.5 h-3.5 text-indigo-400" /> Experience:
+        </span>
+        {['All', 'Entry-Level', 'Mid-Level', 'Senior / Lead'].map((exp) => (
+          <button
+            key={exp}
+            onClick={() => setSelectedExperience(exp)}
+            className={`px-3 py-1 rounded-xl text-xs font-bold transition-all border ${
+              selectedExperience === exp
+                ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40 shadow-sm'
+                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+            }`}
+          >
+            {exp}
+          </button>
+        ))}
       </div>
 
       {/* Skill Filter Pills */}
