@@ -1,6 +1,6 @@
 import { JobListing, CandidateProfile, RankResult, DocumentResult, SystemStats, LLMSettings, JobSource } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 export const INITIAL_PROFILE: CandidateProfile = {
   id: 'default',
@@ -219,6 +219,34 @@ ${profile.name}`
       feedback: 'Generated document is highly relevant, specific, and adheres to candidate facts.'
     }
   };
+}
+
+export async function exportDocumentPDF(
+  content: string,
+  docType: string,
+  templateStyle: string,
+  jobId?: string
+): Promise<void> {
+  try {
+    const res = await fetch(`${API_BASE}/export/pdf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, doc_type: docType, template_style: templateStyle, job_id: jobId })
+    });
+    if (res.ok) {
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `JobHunter_${docType}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    }
+  } catch (e) {
+    console.error('PDF export failed', e);
+  }
 }
 
 export async function fetchStats(jobs: JobListing[]): Promise<SystemStats> {

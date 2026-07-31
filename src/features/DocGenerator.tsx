@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { JobListing, CandidateProfile, DocumentResult } from '../types';
-import { generateDocument } from '../api/client';
+import { generateDocument, exportDocumentPDF } from '../api/client';
 import { FileText, Sparkles, Copy, Check, Award, Loader2, ArrowRight, Printer } from 'lucide-react';
 
 interface DocGeneratorProps {
@@ -42,68 +42,9 @@ export const DocGenerator: React.FC<DocGeneratorProps> = ({
     }
   };
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     if (!documentResult || !selectedJob) return;
-
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${profile.name} - ${selectedJob.company} (${docType === 'cover_letter' ? 'Cover Letter' : 'Resume'})</title>
-          <style>
-            body {
-              font-family: ${templateStyle === 'classic' ? 'Georgia, serif' : 'Inter, Helvetica, Arial, sans-serif'};
-              padding: 40px;
-              color: #1e293b;
-              line-height: 1.6;
-              max-width: 800px;
-              margin: 0 auto;
-            }
-            .header {
-              border-bottom: 2px solid ${templateStyle === 'executive' ? '#0f172a' : '#10b981'};
-              padding-bottom: 15px;
-              margin-bottom: 25px;
-            }
-            .name {
-              font-size: 24px;
-              font-weight: bold;
-              text-transform: ${templateStyle === 'executive' ? 'uppercase' : 'none'};
-              color: #0f172a;
-            }
-            .meta {
-              font-size: 12px;
-              color: #64748b;
-              margin-top: 4px;
-            }
-            .content {
-              white-space: pre-wrap;
-              font-size: 14px;
-            }
-            @media print {
-              body { padding: 0; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <div class="name">${profile.name}</div>
-            <div class="meta">${profile.target_title} | ${profile.location_preference}</div>
-          </div>
-          <div class="content">${documentResult.content}</div>
-          <script>
-            window.onload = function() {
-              window.print();
-            };
-          </script>
-        </body>
-      </html>
-    `;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
+    await exportDocumentPDF(documentResult.content, docType, templateStyle, selectedJob.id);
   };
 
   return (

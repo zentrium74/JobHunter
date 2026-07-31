@@ -22,16 +22,28 @@ export const JobBoard: React.FC<JobBoardProps> = ({
   sources
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [locationQuery, setLocationQuery] = useState('Remote');
+  const [selectedLocations, setSelectedLocations] = useState<string[]>(['Remote']);
   const [selectedSkill, setSelectedSkill] = useState<string>('All');
   const [isScraping, setIsScraping] = useState(false);
+
+  const LOCATION_OPTIONS = ['Remote', 'San Francisco', 'New York', 'London', 'Worldwide'];
+
+  const toggleLocationFilter = (loc: string) => {
+    if (selectedLocations.includes(loc)) {
+      if (selectedLocations.length > 1) {
+        setSelectedLocations(selectedLocations.filter((l) => l !== loc));
+      }
+    } else {
+      setSelectedLocations([...selectedLocations, loc]);
+    }
+  };
 
   const activeSourcesCount = sources.filter((s) => s.enabled).length;
 
   const handleScrapeClick = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsScraping(true);
-    await onScrape(searchQuery || 'AI Engineer', locationQuery);
+    await onScrape(searchQuery || 'AI Engineer', selectedLocations.join(', '));
     setIsScraping(false);
   };
 
@@ -46,7 +58,15 @@ export const JobBoard: React.FC<JobBoardProps> = ({
 
     const matchesSkill = selectedSkill === 'All' || job.skills_required.includes(selectedSkill);
 
-    return matchesQuery && matchesSkill;
+    const matchesLocation =
+      selectedLocations.length === 0 ||
+      selectedLocations.some((loc) =>
+        loc.toLowerCase() === 'remote'
+          ? job.remote || job.location.toLowerCase().includes('remote')
+          : job.location.toLowerCase().includes(loc.toLowerCase())
+      );
+
+    return matchesQuery && matchesSkill && matchesLocation;
   });
 
   return (
@@ -73,24 +93,13 @@ export const JobBoard: React.FC<JobBoardProps> = ({
 
         {/* Scraper Input Form */}
         <form onSubmit={handleScrapeClick} className="grid sm:grid-cols-3 gap-3 pt-2">
-          <div className="relative">
+          <div className="relative sm:col-span-2">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
             <input
               type="text"
-              placeholder="Search Role (e.g. AI Engineer, React)"
+              placeholder="Search Role or Skill (e.g. AI Engineer, React, Python)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-medium"
-            />
-          </div>
-
-          <div className="relative">
-            <MapPin className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-            <input
-              type="text"
-              placeholder="Location (e.g. Remote, SF)"
-              value={locationQuery}
-              onChange={(e) => setLocationQuery(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-medium"
             />
           </div>
@@ -104,6 +113,30 @@ export const JobBoard: React.FC<JobBoardProps> = ({
             {isScraping ? 'Scraping Live Channels...' : 'Scrape Active Roles'}
           </button>
         </form>
+
+        {/* Multi-Select Location Filter Chips */}
+        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-800/80">
+          <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1">
+            <MapPin className="w-3.5 h-3.5 text-emerald-400" /> Location Filter:
+          </span>
+          {LOCATION_OPTIONS.map((loc) => {
+            const active = selectedLocations.includes(loc);
+            return (
+              <button
+                key={loc}
+                type="button"
+                onClick={() => toggleLocationFilter(loc)}
+                className={`px-3 py-1 rounded-xl text-xs font-bold transition-all border ${
+                  active
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm'
+                    : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                }`}
+              >
+                {active ? '✓ ' : '+ '} {loc}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Skill Filter Pills */}

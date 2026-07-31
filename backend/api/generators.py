@@ -1,5 +1,83 @@
 from typing import List, Dict, Any, Optional
 import os
+import io
+
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+
+def generate_pdf_bytes(
+    content: str, 
+    doc_type: str = "cover_letter", 
+    style_name: str = "modern", 
+    candidate_name: str = "Candidate", 
+    job_title: str = "Position", 
+    company: str = "Company"
+) -> bytes:
+    """Generates styled binary PDF bytes from document content using ReportLab."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54)
+    
+    styles = getSampleStyleSheet()
+    story = []
+
+    primary_color = colors.HexColor("#0f172a") # Dark Slate
+    accent_color = colors.HexColor("#10b981") # Emerald
+    
+    if style_name == "executive":
+        primary_color = colors.HexColor("#1e1b4b") # Indigo
+        accent_color = colors.HexColor("#6366f1")
+    elif style_name == "classic":
+        primary_color = colors.HexColor("#18181b") # Zinc
+        accent_color = colors.HexColor("#2563eb") # Blue
+
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Heading1'],
+        fontName='Helvetica-Bold',
+        fontSize=20,
+        leading=24,
+        textColor=primary_color,
+        spaceAfter=4
+    )
+    
+    subtitle_style = ParagraphStyle(
+        'DocSubtitle',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=11,
+        leading=14,
+        textColor=accent_color,
+        spaceAfter=18
+    )
+    
+    body_style = ParagraphStyle(
+        'DocBody',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=10,
+        leading=15,
+        textColor=colors.HexColor("#334155"),
+        spaceAfter=8
+    )
+
+    story.append(Paragraph(candidate_name, title_style))
+    doc_type_title = doc_type.replace('_', ' ').title()
+    story.append(Paragraph(f"{doc_type_title} — {job_title} @ {company}", subtitle_style))
+    story.append(Spacer(1, 10))
+
+    for line in content.split('\n'):
+        clean = line.strip()
+        if not clean:
+            story.append(Spacer(1, 6))
+        else:
+            safe_text = clean.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            story.append(Paragraph(safe_text, body_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
 
 # --- SkillClaw Agent ---
 # Autonomously extracts highly granular, contextualized skills from job descriptions 

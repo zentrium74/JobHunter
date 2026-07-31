@@ -6,7 +6,7 @@ import os
 import re
 import json
 from typing import Any, List, Optional
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Depends, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Depends, WebSocket, WebSocketDisconnect, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -133,6 +133,12 @@ class CRMStatusUpdate(BaseModel):
     job_id: str
     status: str
     notes: Optional[str] = ""
+
+class PDFExportRequest(BaseModel):
+    content: str
+    doc_type: str = "cover_letter"
+    template_style: str = "modern"
+    job_id: Optional[str] = None
 
 class ATSScanRequest(BaseModel):
     ats_sources: List[str] = ["greenhouse", "lever", "ashby"]
@@ -498,9 +504,37 @@ def rank_job(req: RankRequest, db: Session = Depends(get_db)):
         "ai_recommendation": f"Powered by LanceDB & Kuzu GraphRAG. Deep semantic and relational fit found."
     }
 
-from backend.api.generators import AgenticDocumentGenerator
+from backend.api.generators import AgenticDocumentGenerator, generate_pdf_bytes
 
 agentic_generator = AgenticDocumentGenerator()
+
+@app.post("/api/export/pdf")
+def export_pdf(req: PDFExportRequest, db: Session = Depends(get_db)):
+    profile = _get_or_create_profile(db)
+    job_title = "Position"
+    company = "Company"
+    
+    if req.job_id:
+        job = db.query(DBJobListing).filter(DBJobListing.id == req.job_id).first()
+        if job:
+            job_title = job.title
+            company = job.company
+
+    pdf_bytes = generate_pdf_bytes(
+        content=req.content,
+        doc_type=req.doc_type,
+        style_name=req.template_style,
+        candidate_name=profile.name,
+        job_title=job_title,
+        company=company
+    )
+    
+    filename = f"{profile.name.replace(' ', '_')}_{req.doc_type}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 @app.post("/api/generate")
 def generate_document(req: GenerateDocumentRequest, db: Session = Depends(get_db)):
