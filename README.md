@@ -11,16 +11,18 @@
 
 ## 🚀 What is JobHunter?
 
-JobHunter is a fully offline, local-first AI job intelligence workbench. Unlike other platforms that harvest your resume data, JobHunter runs entirely on your own machine. It scrapes job postings, ingests and parses your resume, ranks roles using **semantic exact matching** (via local PyTorch vector embeddings), and generates tailored cover letters and resumes using advanced AI agents. 
+JobHunter is a fully offline, local-first AI job intelligence workbench. Unlike other platforms that harvest your resume data, JobHunter runs entirely on your own machine. It scrapes job postings, ingests and parses your resume, ranks roles using **semantic exact matching** and **deterministic graph logic**, and generates tailored cover letters and resumes using advanced AI agents. 
 
 Everything you do is stored locally in an embedded **SQLite CRM** database. 
 
 ### 🌟 Key Features
 
-* **100% Privacy**: Your data never leaves your laptop. We use local SQLite databases and local Machine Learning models (`sentence-transformers`) for semantic embeddings.
-* **Exact Semantic Matching**: By combining **LanceDB** vector search and a **Kuzu** Graph database, the GraphRAG Ranker goes beyond dumb keyword matching to understand the *context* of your experience compared to the job description.
-* **Agentic Workflows**: Integrated with simulated wrappers for Crawl4AI and RAGAS, JobHunter grades its own AI outputs before you ever see them to prevent hallucinations.
-* **Massive Public API Support**: Natively understands and scrapes public job board APIs out-of-the-box, including **Greenhouse** and **Lever**.
+* **100% Privacy**: Your data never leaves your laptop. We use local SQLite databases and local Machine Learning models (`sentence-transformers`).
+* **Deterministic Graphify Engine**: Toggle between fuzzy Semantic Match and **Exact Graph Match**. The intelligence layer deterministically extracts skills (AST nodes) from the job description and your resume, scoring exact overlap and explaining *every single edge* gap transparently.
+* **Interactive Kanban CRM**: A visual, drag-and-drop HTML5 Kanban board to track your application pipeline across 5 stages (`Discovered` ➔ `Saved` ➔ `Applied` ➔ `Interviewing` ➔ `Offered`).
+* **Automated PDF Export Engine**: Generate stunning, verified cover letters and resume bullets using the AI agent, and instantly download them as beautifully styled PDFs via the integrated `ReportLab` engine (Modern, Executive, and Classic styles).
+* **Multi-ATS Discovery Engine**: Leveraging a "Reverse ATS Scanner" capable of crawling public APIs for Greenhouse, Lever, Ashby, and Workday directly to source roles that haven't even hit traditional job boards yet.
+* **Agentic Evaluators**: Integrated with simulated wrappers for Crawl4AI and RAGAS, JobHunter grades its own AI outputs before you ever see them to prevent hallucinations.
 
 ---
 
@@ -34,12 +36,13 @@ flowchart TB
     end
     subgraph Backend["FastAPI Python Sidecar"]
         API["FastAPI + WebSockets"]
-        Crawler["Crawl4AI Scraper Agents"]
+        Crawler["Crawl4AI / Reverse ATS Engine"]
         OCR["Chandra OCR Ingestion"]
         Gate["Lead Quality Gate"]
-        Ranker["Ranker + Evaluator"]
+        Ranker["Graphify Deterministic Engine"]
         Skills["SkillClaw Agent Skills"]
         Generator["Document Generator"]
+        PDF["ReportLab PDF Exporter"]
         Evaluator["RAGAS Output Evaluator"]
     end
     subgraph DataLayer["Local Data (Never leaves your machine)"]
@@ -52,6 +55,7 @@ flowchart TB
     API --> Crawler --> Gate --> Ranker
     API --> OCR --> Ranker
     Ranker --> Skills --> Generator --> Evaluator
+    Generator --> PDF
     Ranker --> Kuzu
     Ranker --> LanceDB
     API --> SQLite
@@ -66,7 +70,7 @@ To run the local-first application on your machine, you need to spin up the Pyth
 ```bash
 # Terminal 1 - Backend (FastAPI Sidecar)
 cd backend 
-pip install -r requirements.txt # Make sure to install sentence-transformers, fastapi, sqlalchemy
+pip install -r requirements.txt # Make sure to install sentence-transformers, fastapi, sqlalchemy, reportlab
 python -m uvicorn api.main:app --reload --port 8000
 
 # Terminal 2 - Frontend (React + Vite)
@@ -83,6 +87,8 @@ npm run dev
 JobHunter comes pre-packaged with a native scraping engine that parses major public job boards automatically:
 * **Greenhouse API** (`boards-api.greenhouse.io`)
 * **Lever API** (`api.lever.co/v0/postings`)
+* **Ashby API** (`api.ashbyhq.com`)
+* **Workday Workspaces**
 * **Remotive** and **Jobicy** public feeds.
 
 ---
