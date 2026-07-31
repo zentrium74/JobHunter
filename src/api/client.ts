@@ -131,12 +131,12 @@ export async function triggerATSScan(atsSources: string[], limitPerAts: number =
   return { message: 'Scan complete', new_jobs: [] };
 }
 
-export async function rankJob(jobId: string, job: JobListing, profile: CandidateProfile): Promise<RankResult> {
+export async function rankJob(jobId: string, job: JobListing, profile: CandidateProfile, exactMatchMode: boolean = false): Promise<RankResult> {
   try {
     const res = await fetch(`${API_BASE}/rank`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: jobId, candidate_profile: profile })
+      body: JSON.stringify({ job_id: jobId, candidate_profile: profile, exact_match_mode: exactMatchMode })
     });
     if (res.ok) return await res.json();
   } catch {}

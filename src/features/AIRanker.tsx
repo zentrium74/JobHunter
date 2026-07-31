@@ -19,16 +19,18 @@ export const AIRanker: React.FC<AIRankerProps> = ({
   setActiveTab
 }) => {
   const [rankResult, setRankResult] = useState<RankResult | null>(null);
+  const [isExactMatchMode, setIsExactMatchMode] = useState(false);
 
   const selectedJob = jobs.find((j) => j.id === selectedJobId) || jobs[0];
 
   useEffect(() => {
     if (selectedJob) {
-      rankJob(selectedJob.id, selectedJob, profile).then((res) => {
+      setRankResult(null); // Clear loading state
+      rankJob(selectedJob.id, selectedJob, profile, isExactMatchMode).then((res) => {
         setRankResult(res);
       });
     }
-  }, [selectedJobId, profile]);
+  }, [selectedJobId, profile, isExactMatchMode]);
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -41,20 +43,33 @@ export const AIRanker: React.FC<AIRankerProps> = ({
           <p className="text-xs text-slate-400">Explainable skill overlap, experience matching & vector similarity score</p>
         </div>
 
-        {/* Selector */}
-        <div className="flex items-center space-x-2">
-          <label className="text-xs text-slate-400 font-semibold">Target Job:</label>
-          <select
-            value={selectedJob?.id}
-            onChange={(e) => setSelectedJobId(e.target.value)}
-            className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-medium"
+        {/* Selector & Toggles */}
+        <div className="flex flex-col sm:flex-row items-center gap-3">
+          <button
+            onClick={() => setIsExactMatchMode(!isExactMatchMode)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+              isExactMatchMode
+                ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/40 shadow-sm'
+                : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+            }`}
           >
-            {jobs.map((j) => (
-              <option key={j.id} value={j.id}>
-                {j.title} ({j.company})
-              </option>
-            ))}
-          </select>
+            {isExactMatchMode ? '✓ Exact Graph Match' : 'Semantic Hybrid Match'}
+          </button>
+          
+          <div className="flex items-center space-x-2">
+            <label className="text-xs text-slate-400 font-semibold">Target Job:</label>
+            <select
+              value={selectedJob?.id}
+              onChange={(e) => setSelectedJobId(e.target.value)}
+              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-medium"
+            >
+              {jobs.map((j) => (
+                <option key={j.id} value={j.id}>
+                  {j.title} ({j.company})
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -116,40 +131,68 @@ export const AIRanker: React.FC<AIRankerProps> = ({
               </div>
             </div>
 
-            {/* Breakdown Cards Grid */}
-            <div className="grid md:grid-cols-2 gap-4">
-              {/* Skill Match Card */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Matching Skills (Candidate vs Job)
-                </h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {rankResult?.matching_skills.map((skill) => (
-                    <span key={skill} className="px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold">
-                      ✓ {skill}
-                    </span>
+            {/* Conditional Breakdown Cards Grid */}
+            {isExactMatchMode && rankResult?.exact_match_analysis ? (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-inner">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Cpu className="w-4 h-4 text-indigo-400" /> Graphify Edge Extraction
+                  </h3>
+                  <span className="text-[11px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded-md">
+                    {rankResult.exact_match_analysis.extracted_job_nodes} Nodes Extracted
+                  </span>
+                </div>
+                
+                <div className="space-y-2 max-h-[300px] overflow-y-auto scrollbar-thin pr-2">
+                  {rankResult.exact_match_analysis.edges.map((edge, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`p-3 rounded-lg border text-xs font-medium ${
+                        edge.status === 'exact_match' 
+                          ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' 
+                          : 'bg-amber-500/10 border-amber-500/20 text-amber-300'
+                      }`}
+                    >
+                      {edge.reasoning}
+                    </div>
                   ))}
                 </div>
               </div>
-
-              {/* Missing Skills Card */}
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-400" /> Missing / Optional Keywords
-                </h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {rankResult?.missing_skills.length ? (
-                    rankResult.missing_skills.map((skill) => (
-                      <span key={skill} className="px-2.5 py-1 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-semibold">
-                        ! {skill}
+            ) : (
+              <div className="grid md:grid-cols-2 gap-4">
+                {/* Skill Match Card */}
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Matching Skills (Candidate vs Job)
+                  </h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {rankResult?.matching_skills.map((skill) => (
+                      <span key={skill} className="px-2.5 py-1 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold">
+                        ✓ {skill}
                       </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-emerald-400 font-semibold">100% Skill Coverage Achieved!</span>
-                  )}
+                    ))}
+                  </div>
+                </div>
+
+                {/* Missing Skills Card */}
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-400" /> Missing / Optional Keywords
+                  </h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {rankResult?.missing_skills.length ? (
+                      rankResult.missing_skills.map((skill) => (
+                        <span key={skill} className="px-2.5 py-1 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 text-xs font-semibold">
+                          ! {skill}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-emerald-400 font-semibold">100% Skill Coverage Achieved!</span>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* AI Strategic Recommendation */}
             <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 rounded-2xl p-6 space-y-3">

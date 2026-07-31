@@ -42,10 +42,23 @@ export interface RankResult {
   matching_skills: string[];
   missing_skills: string[];
   breakdown: {
-    skill_match_pct: number;
-    experience_fit: string;
-    salary_alignment: string;
+    semantic_match_score?: string;
+    graph_connectivity_score?: string;
+    connected_skills?: string;
+    skill_match_pct?: number;
+    experience_fit?: string;
+    salary_alignment?: string;
     remote_preference: string;
+  };
+  exact_match_analysis?: {
+    exact_match_score: number;
+    edges: Array<{
+      node: string;
+      status: 'exact_match' | 'missing_gap';
+      reasoning: string;
+    }>;
+    extracted_job_nodes: number;
+    extracted_candidate_nodes: number;
   };
   ai_recommendation: string;
 }

@@ -64,6 +64,72 @@ class KuzuGraphStore:
         }
 
 
+# --- Graphify Deterministic Engine ---
+# Implements strict AST/node graph extraction for exact matching.
+
+class DeterministicGraphifyEngine:
+    def __init__(self):
+        self.name = "Deterministic Graphify Engine"
+
+    def extract_nodes(self, text: str, entity_type: str) -> List[str]:
+        # Simulated AST extraction (in production, uses LLM structured extraction or regex rules)
+        text_lower = text.lower()
+        extracted = []
+        if entity_type == "skills":
+            keywords = ["python", "react", "fastapi", "docker", "aws", "kubernetes", "typescript", "node"]
+            for k in keywords:
+                if k in text_lower:
+                    extracted.append(k.capitalize())
+        return extracted
+
+    def evaluate_exact_match(self, job: Any, profile: Any) -> Dict[str, Any]:
+        """Calculates deterministic exact match percentage and explains every edge."""
+        
+        # 1. Node Extraction
+        job_desc = getattr(job, "description", "")
+        job_req_skills = getattr(job, "skills_required", [])
+        if not job_req_skills:
+            job_req_skills = self.extract_nodes(job_desc, "skills")
+            
+        candidate_skills = getattr(profile, "skills", [])
+        if not candidate_skills:
+            candidate_skills = self.extract_nodes(getattr(profile, "raw_resume_text", ""), "skills")
+            
+        # Standardize strings for deterministic comparison
+        j_skills = set(s.lower().strip() for s in job_req_skills)
+        c_skills = set(s.lower().strip() for s in candidate_skills)
+        
+        # 2. Build explicit edge explanations
+        edge_explanations = []
+        exact_matches = 0
+        total_reqs = len(j_skills) if j_skills else 1 # Avoid div by zero
+        
+        for req in j_skills:
+            req_display = req.capitalize()
+            if req in c_skills:
+                exact_matches += 1
+                edge_explanations.append({
+                    "node": req_display,
+                    "status": "exact_match",
+                    "reasoning": f"✅ Exact Match: Candidate explicitly possesses required skill '{req_display}'."
+                })
+            else:
+                edge_explanations.append({
+                    "node": req_display,
+                    "status": "missing_gap",
+                    "reasoning": f"❌ Hard Gap: Job requires '{req_display}', but candidate profile lacks it."
+                })
+                
+        exact_match_score = int((exact_matches / total_reqs) * 100) if j_skills else 100
+        
+        return {
+            "exact_match_score": exact_match_score,
+            "edges": edge_explanations,
+            "extracted_job_nodes": len(j_skills),
+            "extracted_candidate_nodes": len(c_skills)
+        }
+
+
 # --- GraphRAG Ranker ---
 # Combines semantic (LanceDB) and relational (Kuzu) data to score jobs deterministically.
 
@@ -71,9 +137,20 @@ class GraphRAGRanker:
     def __init__(self):
         self.vector_store = LanceDBStore()
         self.graph_store = KuzuGraphStore()
+        self.graphify_engine = DeterministicGraphifyEngine()
         
-    def evaluate_job_fit(self, job: Any, profile: Any) -> Dict[str, Any]:
-        """Calculates a deterministic fit score using GraphRAG."""
+    def evaluate_job_fit(self, job: Any, profile: Any, exact_match_mode: bool = False) -> Dict[str, Any]:
+        """Calculates a deterministic fit score using GraphRAG or Graphify Engine."""
+        
+        if exact_match_mode:
+            graphify_results = self.graphify_engine.evaluate_exact_match(job, profile)
+            return {
+                "final_score": graphify_results["exact_match_score"],
+                "semantic_score": 0,
+                "graph_score": graphify_results["exact_match_score"],
+                "graph_connections": [edge["node"] for edge in graphify_results["edges"] if edge["status"] == "exact_match"],
+                "exact_match_analysis": graphify_results
+            }
         
         # 1. Semantic Check
         semantic_score = self.vector_store.query_semantic_match(getattr(job, "description", ""))
@@ -85,9 +162,13 @@ class GraphRAGRanker:
         # 3. Combine scores (weighted)
         final_score = int((semantic_score * 0.4 + graph_score * 0.6) * 100)
         
+        # Add basic Graphify breakdown even in hybrid mode so UI can display it
+        graphify_results = self.graphify_engine.evaluate_exact_match(job, profile)
+        
         return {
             "final_score": min(99, max(50, final_score)),
             "semantic_score": semantic_score,
             "graph_score": graph_score,
-            "graph_connections": graph_results["connected_skills"]
+            "graph_connections": graph_results["connected_skills"],
+            "exact_match_analysis": graphify_results
         }

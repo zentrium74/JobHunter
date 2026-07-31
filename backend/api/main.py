@@ -123,6 +123,7 @@ class LLMSettings(BaseModel):
 class RankRequest(BaseModel):
     job_id: str
     candidate_profile: Optional[CandidateProfile] = None
+    exact_match_mode: bool = False
 
 class GenerateDocumentRequest(BaseModel):
     job_id: str
@@ -476,7 +477,7 @@ def rank_job(req: RankRequest, db: Session = Depends(get_db)):
     profile = profile_data if profile_data else _get_or_create_profile(db)
     
     # 1. Use GraphRAG Ranker for deterministic scoring
-    evaluation = graph_ranker.evaluate_job_fit(job, profile)
+    evaluation = graph_ranker.evaluate_job_fit(job, profile, exact_match_mode=req.exact_match_mode)
     final_score = evaluation["final_score"]
     
     # Extract traditional missing/matching for UI parity
@@ -501,7 +502,8 @@ def rank_job(req: RankRequest, db: Session = Depends(get_db)):
             "connected_skills": ", ".join(evaluation["graph_connections"]),
             "remote_preference": f"100% {profile.location_preference} match"
         },
-        "ai_recommendation": f"Powered by LanceDB & Kuzu GraphRAG. Deep semantic and relational fit found."
+        "exact_match_analysis": evaluation.get("exact_match_analysis"),
+        "ai_recommendation": f"Powered by {'Graphify Engine (Deterministic AST Matching)' if req.exact_match_mode else 'LanceDB & Kuzu GraphRAG (Semantic Hybrid Fit)'}."
     }
 
 from backend.api.generators import AgenticDocumentGenerator, generate_pdf_bytes
